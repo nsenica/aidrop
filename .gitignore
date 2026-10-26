@@ -1,0 +1,10 @@
+# Local runtime data and build output
+/data/
+/aidrop
+
+# Backlog.md control-plane files
+/.backlog/
+/backlog.config.yml
+
+# Local agent instructions
+/AGENTS.md
