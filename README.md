@@ -11,7 +11,7 @@ bearer token.
 | Format | Preview |
 | --- | --- |
 | HTML | Sandboxed page with Home and project navigation |
-| Markdown | Sanitized, readable document with selectable and copyable source |
+| Markdown | Sanitized document with selectable/copyable source and local Mermaid diagrams |
 | ZIP website | Validated static site with relative assets and nested pages |
 
 Use the REST API or the Streamable HTTP MCP endpoint. Both share the same
@@ -41,6 +41,17 @@ curl -fsS \
 ```
 
 The response includes a stable public URL for the new artifact.
+
+Markdown previews render Mermaid flowcharts, sequence diagrams, and class
+diagrams from fenced blocks. For example:
+
+```mermaid
+flowchart LR
+  Agent --> AI_Drop
+```
+
+The Mermaid renderer is bundled with AI Drop, so previews do not load diagram
+scripts from external services.
 
 ## Security
 

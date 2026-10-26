@@ -38,6 +38,26 @@ func TestHealthIsPublic(t *testing.T) {
 	}
 }
 
+func TestMermaidRendererAssetIsServedFromSameOrigin(t *testing.T) {
+	handler := newTestHandler(t, "secret-value")
+	response := performRequest(handler, http.MethodGet, "/assets/mermaid.tiny.min.js", "", "", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("Mermaid asset status=%d, want %d", response.Code, http.StatusOK)
+	}
+	if got := response.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+		t.Errorf("Mermaid asset content type=%q, want JavaScript", got)
+	}
+	if got := response.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("Mermaid asset X-Content-Type-Options=%q, want nosniff", got)
+	}
+	if got := response.Header().Get("Cache-Control"); got != "public, max-age=86400" {
+		t.Errorf("Mermaid asset Cache-Control=%q, want one-day public cache", got)
+	}
+	if !strings.Contains(response.Body.String(), "globalThis.mermaid") {
+		t.Error("served Mermaid asset does not expose the expected browser renderer")
+	}
+}
+
 func TestManagementRoutesRequireBearerToken(t *testing.T) {
 	const secret = "configured-secret"
 	handler := newTestHandler(t, secret)
@@ -424,7 +444,7 @@ func TestMarkdownPublishRenderSourceAndUpdate(t *testing.T) {
 	handler, _ := newTestService(t, token)
 	path := "/api/v1/projects/demo/artifacts/report"
 	publicPath := "/p/demo/report/"
-	original := []byte("# Release report\r\n\r\n| Area | Status |\r\n| --- | --- |\r\n| API | ready |\r\n\r\n[Docs](https://example.test/docs)\r\n\r\n- first\r\n- second\r\n\r\n```go\r\nfmt.Println(\"ok\")\r\n```\r\n")
+	original := []byte("# Release report\r\n\r\n| Area | Status |\r\n| --- | --- |\r\n| API | ready |\r\n\r\n[Docs](https://example.test/docs)\r\n\r\n- first\r\n- second\r\n\r\n```go\r\nfmt.Println(\"ok\")\r\n```\r\n\r\n```mermaid\r\nclassDiagram\r\n  class Artifact\r\n```\r\n")
 
 	created := performRequest(handler, http.MethodPost, path, token, "text/markdown; charset=utf-8", original)
 	if created.Code != http.StatusCreated {
@@ -445,8 +465,8 @@ func TestMarkdownPublishRenderSourceAndUpdate(t *testing.T) {
 	if got := view.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 		t.Errorf("Markdown public Content-Type=%q, want text/html", got)
 	}
-	if got := view.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'none'") || !strings.Contains(got, "script-src 'unsafe-inline'") {
-		t.Errorf("Markdown public CSP=%q, want the existing restrictive policy with inline source-view script", got)
+	if got := view.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'none'") || !strings.Contains(got, "script-src 'self' 'unsafe-inline'") {
+		t.Errorf("Markdown public CSP=%q, want the restrictive policy with same-origin Mermaid and inline source-view scripts", got)
 	}
 	for _, want := range []string{
 		"<h1>Release report</h1>",
@@ -454,6 +474,8 @@ func TestMarkdownPublishRenderSourceAndUpdate(t *testing.T) {
 		"<a href=\"https://example.test/docs\">Docs</a>",
 		"<ul>",
 		"<pre><code class=\"language-go\">",
+		"<pre><code class=\"language-mermaid\">",
+		"src=\"/assets/mermaid.tiny.min.js\"",
 		"id=\"copy-source\" type=\"button\">Copy source</button>",
 		"<main class=\"document-card\">",
 		"class=\"document-kind\">Markdown document</p>",
@@ -462,6 +484,9 @@ func TestMarkdownPublishRenderSourceAndUpdate(t *testing.T) {
 		if !strings.Contains(view.Body.String(), want) {
 			t.Errorf("public Markdown page does not contain %q", want)
 		}
+	}
+	if strings.Contains(view.Body.String(), "cdn.jsdelivr.net") || strings.Contains(view.Body.String(), "unpkg.com") {
+		t.Error("Markdown page refers to an external Mermaid service")
 	}
 	if got := view.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'none'") || !strings.Contains(got, "frame-ancestors 'none'") {
 		t.Errorf("Markdown CSP=%q, want restrictive service page policy", got)

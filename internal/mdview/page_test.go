@@ -2,6 +2,7 @@ package mdview
 
 import (
 	"encoding/base64"
+	"html"
 	"strings"
 	"testing"
 )
@@ -38,9 +39,52 @@ func TestRenderPageSupportsGFMAndSelectableOriginalSource(t *testing.T) {
 			t.Errorf("rendered page does not contain %q", want)
 		}
 	}
+	if strings.Contains(contents, "mermaid.tiny.min.js") || strings.Contains(contents, "window.mermaid") {
+		t.Error("ordinary Markdown page loaded the Mermaid renderer")
+	}
 	encoded := base64.StdEncoding.EncodeToString(source)
 	if !strings.Contains(contents, `id="markdown-source-data" type="hidden" value="`+encoded+`"`) {
 		t.Error("page source payload does not preserve the exact original bytes as Base64")
+	}
+}
+
+func TestRenderPageSupportsMermaidAndPreservesFallbackSource(t *testing.T) {
+	source := []byte("# System overview\n\n```mermaid\nflowchart TD\n  A[Client] --> B[API]\n```\n\n```mermaid\nsequenceDiagram\n  Client->>API: request\n```\n\n```mermaid\nclassDiagram\n  class Artifact\n```\n\n```mermaid\nnot a valid diagram\n```\n\nThe rest of the document remains readable.\n")
+	page, err := RenderPage("demo", "overview", source)
+	if err != nil {
+		t.Fatalf("RenderPage: %v", err)
+	}
+	contents := string(page)
+	for _, want := range []string{
+		`<code class="language-mermaid">`,
+		`src="/assets/mermaid.tiny.min.js"`,
+		`securityLevel: "strict"`,
+		`secure: ["secure", "securityLevel", "startOnLoad", "maxTextSize", "maxEdges", "suppressErrorRendering"]`,
+		`maxTextSize: 50000`,
+		`maxEdges: 500`,
+		`suppressErrorRendering: true`,
+		`window.mermaid.parse(source, { suppressErrors: true })`,
+		"if (!parsed) {\n            showFallback(pre);",
+		"catch (_) {\n          showFallback(pre);",
+		"Diagram preview unavailable; Mermaid source is shown below.",
+		"not a valid diagram",
+		"The rest of the document remains readable.",
+	} {
+		if !strings.Contains(contents, want) {
+			t.Errorf("rendered Mermaid page does not contain %q", want)
+		}
+	}
+	parseCall := strings.Index(contents, `window.mermaid.parse(source, { suppressErrors: true })`)
+	renderCall := strings.Index(contents, `window.mermaid.render("aidrop-mermaid-" + index, source)`)
+	if parseCall < 0 || renderCall < 0 || parseCall > renderCall {
+		t.Error("Mermaid syntax validation must run before rendering")
+	}
+	if strings.Contains(contents, "cdn.jsdelivr.net") || strings.Contains(contents, "unpkg.com") {
+		t.Error("Mermaid page refers to an external asset host")
+	}
+	encoded := base64.StdEncoding.EncodeToString(source)
+	if !strings.Contains(html.UnescapeString(contents), `id="markdown-source-data" type="hidden" value="`+encoded+`"`) {
+		t.Error("Mermaid page does not preserve the exact original source bytes")
 	}
 }
 

@@ -48,6 +48,7 @@ func NewHandler(cfg config.Config, repository *storage.Repository) http.Handler 
 	mux.Handle("/api/v1", s.managementCORS(s.authenticate(http.HandlerFunc(s.managementNotFound))))
 	mux.Handle("/api/v1/", s.managementCORS(s.authenticate(http.StripPrefix("/api/v1", management))))
 	mux.Handle("/mcp", s.mcpCORS(s.authenticate(newMCPHTTPHandler(s))))
+	mux.HandleFunc("GET /assets/mermaid.tiny.min.js", s.mermaidJavaScript)
 	mux.HandleFunc("/p/{project}/", s.publicProject)
 	mux.HandleFunc("/p/{project}/{artifact}/", s.publicArtifact)
 	mux.HandleFunc("/", s.home)
@@ -56,6 +57,16 @@ func NewHandler(cfg config.Config, repository *storage.Repository) http.Handler 
 
 func (s *server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *server) mermaidJavaScript(w http.ResponseWriter, _ *http.Request) {
+	script := mdview.MermaidJavaScript()
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(script)))
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(script)
 }
 
 func (s *server) notFound(w http.ResponseWriter, _ *http.Request) {
@@ -256,7 +267,7 @@ func (s *server) publicArtifact(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 			w.WriteHeader(http.StatusOK)

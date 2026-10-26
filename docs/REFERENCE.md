@@ -86,6 +86,23 @@ same Home/project navigation used by HTML previews, a responsive reading layout,
 and a Rendered/Source disclosure. The source view is selectable and copyable;
 the authenticated source endpoint preserves the exact original Markdown bytes.
 
+Fenced Mermaid blocks render common flowchart, sequence, and class diagrams. Use
+the `mermaid` language identifier:
+
+````markdown
+```mermaid
+sequenceDiagram
+    Agent->>AI Drop: Publish a document
+    AI Drop-->>Agent: Return the public URL
+```
+````
+
+AI Drop bundles Mermaid Tiny 12.2.0 locally, so diagram previews need no remote
+scripts or assets. The renderer uses strict security settings for uploaded
+diagram text; malformed or unsupported diagrams remain readable as source.
+The vendored bundle's MIT license is in
+[`internal/mdview/assets/MERMAID-LICENSE.txt`](../internal/mdview/assets/MERMAID-LICENSE.txt).
+
 Rendering sanitizes raw HTML and keeps dangerous links inert, so uploaded
 markup is displayed as content rather than executed or navigated as active
 content.

@@ -14,6 +14,7 @@ type pageData struct {
 	Artifact     string
 	RenderedHTML template.HTML
 	SourceBase64 string
+	HasMermaid   bool
 }
 
 var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype html>
@@ -62,6 +63,9 @@ var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype 
     .prose pre { margin: 1.35rem 0; padding: 1.1rem 1.2rem; border: 1px solid #2d3c58; border-radius: 12px; background: #18243a; color: #e7edfa; overflow: auto; }
     pre code { background: none; padding: 0; }
     .prose pre code { color: inherit; }
+    .prose .mermaid-diagram { max-width: 100%; margin: 1.35rem 0; overflow-x: auto; text-align: center; }
+    .prose .mermaid-diagram svg { max-width: 100%; height: auto; }
+    .prose .mermaid-fallback { margin: 1.1rem 0 -.9rem; color: #8a5a12; font-size: .88rem; }
     .prose code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .88em; }
     .prose :not(pre) > code { padding: .15rem .35rem; border: 1px solid #e5eaf2; border-radius: 5px; background: #f4f6fa; color: #425477; }
     .prose hr { height: 1px; margin: 2rem 0; border: 0; background: #e6eaf1; }
@@ -135,6 +139,53 @@ var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype 
       });
     })();
   </script>
+  {{if .HasMermaid}}
+  <script src="/assets/mermaid.tiny.min.js" defer></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      const showFallback = pre => {
+        const notice = document.createElement("p");
+        notice.className = "mermaid-fallback";
+        notice.textContent = "Diagram preview unavailable; Mermaid source is shown below.";
+        pre.parentNode.insertBefore(notice, pre);
+      };
+      const blocks = document.querySelectorAll(".prose pre > code.language-mermaid");
+      if (!window.mermaid) {
+        blocks.forEach(code => showFallback(code.parentElement));
+        return;
+      }
+      window.mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        secure: ["secure", "securityLevel", "startOnLoad", "maxTextSize", "maxEdges", "suppressErrorRendering"],
+        theme: "neutral",
+        maxTextSize: 50000,
+        maxEdges: 500,
+        suppressErrorRendering: true
+      });
+      for (const [index, code] of blocks.entries()) {
+        const pre = code.parentElement;
+        try {
+          const source = code.textContent;
+          const parsed = await window.mermaid.parse(source, { suppressErrors: true });
+          if (!parsed) {
+            showFallback(pre);
+            continue;
+          }
+          const rendered = await window.mermaid.render("aidrop-mermaid-" + index, source);
+          const diagram = document.createElement("div");
+          diagram.className = "mermaid-diagram";
+          diagram.setAttribute("role", "img");
+          diagram.setAttribute("aria-label", "Mermaid diagram");
+          diagram.innerHTML = rendered.svg;
+          pre.replaceWith(diagram);
+        } catch (_) {
+          showFallback(pre);
+        }
+      }
+    }, { once: true });
+  </script>
+  {{end}}
 </body>
 </html>
 `))
@@ -153,6 +204,7 @@ func RenderPage(project, artifact string, source []byte) ([]byte, error) {
 		Artifact:     artifact,
 		RenderedHTML: template.HTML(rendered.String()),
 		SourceBase64: base64.StdEncoding.EncodeToString(source),
+		HasMermaid:   bytes.Contains(rendered.Bytes(), []byte(`<code class="language-mermaid">`)),
 	}
 	var page bytes.Buffer
 	if err := pageTemplate.Execute(&page, data); err != nil {
