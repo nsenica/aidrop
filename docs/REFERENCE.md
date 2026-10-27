@@ -304,6 +304,28 @@ that client):
 }
 ```
 
+### Codex CLI
+
+Register the endpoint with Codex's bearer-token environment-variable support:
+
+```sh
+codex mcp add aidrop \
+  --url http://127.0.0.1:6420/mcp \
+  --bearer-token-env-var AIDROP_BEARER_TOKEN
+```
+
+Use the address reachable from Codex; replace `127.0.0.1` when Codex runs on
+another machine. The token must be exported in the environment of the Codex
+process that connects to MCP. A shell startup file only helps when that shell
+launches Codex, and changing it does not update an already-running process.
+Restart Codex after changing its environment or MCP configuration.
+
+If Codex cannot inherit the token, `http_headers_helper` can run a local
+command for a locally connected HTTP MCP server. The command prints a JSON
+object of HTTP headers. Have it read the token from a protected file and emit
+an `Authorization` header; keep the token itself out of `config.toml`. See the
+[Codex configuration reference](https://developers.openai.com/codex/config-reference).
+
 An agent can call the tools with JSON arguments such as these:
 
 ```json
