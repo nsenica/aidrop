@@ -37,12 +37,12 @@ var catalogTemplate = template.Must(template.New("catalog").Parse(`{{define "sty
   a { color: inherit; }
   a:focus-visible { outline: 3px solid #8ba7ff; outline-offset: 4px; border-radius: 5px; }
   .page-shell { width: min(100%, 1120px); margin: 0 auto; padding: 30px 28px 56px; }
-  .site-header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 48px; padding: 10px 0; border-bottom: 1px solid #dfe5ef; background: #f4f6fb; }
-  .brand { display: inline-flex; align-items: center; gap: 10px; color: #1b2940; font-size: .98rem; font-weight: 760; letter-spacing: -.025em; text-decoration: none; }
+  .site-header { position: sticky; top: 0; z-index: 10; display: flex; min-height: 68px; align-items: center; justify-content: space-between; gap: 14px 24px; margin-bottom: 48px; padding: 12px 24px; border-bottom: 1px solid #dfe5ef; background: #fff; box-shadow: 0 3px 14px #263c630c; }
+  .brand { display: inline-flex; flex: none; align-items: center; gap: 9px; color: #1b2940; font-size: .95rem; font-weight: 760; letter-spacing: -.025em; text-decoration: none; }
   .brand a { color: inherit; text-decoration: none; }
   .brand a:hover { color: #315ed0; }
-  .brand-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 11px; background: linear-gradient(145deg, #3769e8, #2349b4); box-shadow: 0 5px 12px #345bc533; color: #fff; font-size: .88rem; font-weight: 800; }
-  .header-label { color: #758198; font-size: .82rem; }
+  .brand-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: linear-gradient(145deg, #3769e8, #2349b4); box-shadow: 0 4px 11px #345bc533; color: #fff; font-size: .84rem; font-weight: 800; }
+  .header-label { flex: none; margin-left: auto; padding: 6px 9px; border: 1px solid #e1e8f5; border-radius: 999px; background: #f7f9fd; color: #6d7b92; font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
   .breadcrumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 0 0 15px; color: #8791a3; font-size: .86rem; }
   .breadcrumbs a { color: #51617b; text-decoration: none; }
   .breadcrumbs a:hover { color: #315ed0; }
@@ -80,9 +80,9 @@ var catalogTemplate = template.Must(template.New("catalog").Parse(`{{define "sty
   .empty-state h2 { margin: 0; color: #25344c; font-size: 1.05rem; letter-spacing: -.015em; }
   .empty-state p:last-child { margin: 5px 0 0; color: #758198; font-size: .9rem; }
   .site-footer { margin-top: 44px; padding-top: 16px; border-top: 1px solid #dfe5ef; color: #8993a5; font-size: .77rem; }
-  @media (max-width: 620px) {
+  @media (max-width: 640px) {
     .page-shell { padding: 22px 17px 40px; }
-    .site-header { margin-bottom: 34px; padding: 8px 0; }
+    .site-header { min-height: 0; flex-wrap: wrap; margin-bottom: 34px; padding: 11px 14px; }
     .page-heading { align-items: flex-start; flex-direction: column; gap: 14px; margin-bottom: 22px; }
     .artifact-card { align-items: flex-start; flex-direction: column; gap: 14px; padding: 17px; }
     .artifact-open { align-self: stretch; justify-content: center; }
