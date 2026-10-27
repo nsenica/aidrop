@@ -149,10 +149,59 @@ func validateEntry(file *zip.File, nodes map[string]*pathNode) (validatedEntry, 
 	if err := storage.ValidateSitePath(path); err != nil {
 		return validatedEntry{}, fmt.Errorf("%w: unsafe archive path", ErrInvalidArchive)
 	}
+	if isSensitiveArchivePath(path) {
+		return validatedEntry{}, fmt.Errorf("%w: sensitive archive path", ErrInvalidArchive)
+	}
 	if err := registerPath(path, isDir, nodes); err != nil {
 		return validatedEntry{}, err
 	}
 	return validatedEntry{file: file, path: path, isDir: isDir, method: file.Method}, nil
+}
+
+func isSensitiveArchivePath(sitePath string) bool {
+	parts := strings.Split(sitePath, "/")
+	for index, part := range parts {
+		name := strings.ToLower(part)
+		if name == ".git" || isEnvironmentFileName(name) {
+			return true
+		}
+		if index == len(parts)-1 && isPrivateKeyFileName(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func isEnvironmentFileName(name string) bool {
+	if name == ".env" {
+		return true
+	}
+	if !strings.HasPrefix(name, ".env.") {
+		return false
+	}
+	switch name {
+	case ".env.example", ".env.sample", ".env.template", ".env.dist":
+		return false
+	default:
+		return true
+	}
+}
+
+func isPrivateKeyFileName(name string) bool {
+	if strings.HasSuffix(name, ".pub") {
+		return false
+	}
+	for _, prefix := range []string{"id_rsa", "id_ed25519", "id_ecdsa", "id_dsa", "ssh_host_"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	for _, extension := range []string{".key", ".pkey", ".priv"} {
+		if strings.HasSuffix(name, extension) {
+			return true
+		}
+	}
+	return strings.Contains(name, "private") && strings.HasSuffix(name, ".pem")
 }
 
 func registerPath(sitePath string, isDir bool, nodes map[string]*pathNode) error {

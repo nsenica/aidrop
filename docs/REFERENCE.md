@@ -158,6 +158,16 @@ conflicts are rejected before publication. Limit failures return
 `413 archive_limit_exceeded`; malformed or unsafe archives return
 `400 invalid_archive`.
 
+ZIP validation also rejects paths containing a `.git` component, `.env` files,
+and `.env.*` files except the common `.env.example`, `.env.sample`,
+`.env.template`, and `.env.dist` templates. It rejects recognizable private-key
+filenames such as `id_rsa`, `id_ed25519`, `id_ecdsa`, `id_dsa`, `*.key`,
+`*.pkey`, `*.priv`, and names containing `private` with a `.pem` extension;
+public `.pub` keys and certificate `.pem` files remain allowed. This is a
+filename-based safeguard, not a content scanner: it does not detect credentials
+or other secrets embedded in HTML, Markdown, or arbitrary files, and custom
+private-key filenames may not match these patterns.
+
 HTML files served from a ZIP use `Content-Security-Policy: sandbox
 allow-scripts` without `allow-same-origin`; assets receive a matching MIME type
 and `X-Content-Type-Options: nosniff`.

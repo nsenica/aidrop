@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -520,6 +521,57 @@ func TestInvalidZIPDoesNotPublishOrReplaceArtifact(t *testing.T) {
 	source := performRequest(handler, http.MethodGet, path+"/source", token, "", nil)
 	if source.Code != http.StatusOK || !bytes.Equal(source.Body.Bytes(), original) {
 		t.Fatalf("source after rejected update status=%d; prior ZIP was not retained", source.Code)
+	}
+}
+
+func TestSensitiveZIPEntriesDoNotPublishOrReplaceArtifact(t *testing.T) {
+	const token = "zip-sensitive-entry-secret"
+	handler, repository := newTestService(t, token)
+	blockedPaths := []string{".env", "site/.git/config", "keys/id_ed25519", "tls/server.key"}
+	for index, blockedPath := range blockedPaths {
+		path := fmt.Sprintf("/api/v1/projects/demo/artifacts/rejected-%d", index)
+		archive := makeTestZIP(t, map[string][]byte{
+			"index.html": []byte("must not publish"),
+			blockedPath:  []byte("sensitive"),
+		})
+		response := performRequest(handler, http.MethodPost, path, token, "application/zip", archive)
+		assertAPIError(t, response, http.StatusBadRequest, "invalid_archive")
+	}
+	projects, err := repository.ListProjects()
+	if err != nil {
+		t.Fatalf("list projects after rejected sensitive archives: %v", err)
+	}
+	if len(projects) != 0 {
+		t.Fatalf("rejected archives published projects: %v", projects)
+	}
+
+	path := "/api/v1/projects/demo/artifacts/site"
+	original := makeTestZIP(t, map[string][]byte{
+		"index.html":      []byte("old complete site"),
+		".env.example":    []byte("PUBLIC_URL="),
+		".gitignore":      []byte("node_modules/"),
+		"certs/site.pem":  []byte("public certificate"),
+		"keys/client.pub": []byte("public SSH key"),
+	})
+	created := performRequest(handler, http.MethodPost, path, token, "application/zip", original)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create ordinary ZIP status=%d body=%s", created.Code, created.Body.String())
+	}
+	for _, blockedPath := range []string{".env.production", "assets/.git/config", "keys/id_rsa", "tls/private.pem"} {
+		archive := makeTestZIP(t, map[string][]byte{
+			"index.html": []byte("replacement must not publish"),
+			blockedPath:  []byte("sensitive"),
+		})
+		response := performRequest(handler, http.MethodPut, path, token, "application/zip", archive)
+		assertAPIError(t, response, http.StatusBadRequest, "invalid_archive")
+	}
+	root := performRequest(handler, http.MethodGet, "/p/demo/site/?_aidrop_content=1", "", "", nil)
+	if root.Code != http.StatusOK || string(root.Body.Bytes()) != "old complete site" {
+		t.Fatalf("published site after rejected replacements status=%d body=%q", root.Code, root.Body.Bytes())
+	}
+	source := performRequest(handler, http.MethodGet, path+"/source", token, "", nil)
+	if source.Code != http.StatusOK || !bytes.Equal(source.Body.Bytes(), original) {
+		t.Fatalf("source after rejected replacements status=%d; prior ZIP was not retained", source.Code)
 	}
 }
 
