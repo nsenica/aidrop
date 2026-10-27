@@ -25,6 +25,7 @@ func TestRenderPageSupportsGFMAndSelectableOriginalSource(t *testing.T) {
 		"id=\"markdown-source\" aria-label=\"Original Markdown source\" readonly",
 		"id=\"copy-source\" type=\"button\">Copy source</button>",
 		"class=\"site-header\"",
+		".site-header { position: sticky; top: 0; z-index: 10;",
 		"aria-label=\"Breadcrumb\"",
 		"href=\"/\">Home</a>",
 		"href=\"/p/demo/\">demo</a>",

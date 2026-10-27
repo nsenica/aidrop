@@ -677,6 +677,7 @@ func TestPublicCatalogPagesListProjectsArtifactsAndEmptyStates(t *testing.T) {
 		"href=\"/\">AI Drop</a>",
 		"aria-label=\"Breadcrumb\"",
 		"class=\"artifact-card\"",
+		".site-header { position: sticky; top: 0; z-index: 10;",
 		"@media (max-width: 620px)",
 	} {
 		if !strings.Contains(alpha.Body.String(), want) {

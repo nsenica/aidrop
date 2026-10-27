@@ -31,7 +31,7 @@ var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype 
     a { color: #315ac1; overflow-wrap: anywhere; }
     a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid #8ba7ff; outline-offset: 3px; border-radius: 5px; }
     .page-shell { width: min(100%, 920px); flex: 1; margin: 0 auto; padding: 30px 26px 64px; }
-    .site-header { z-index: 1; display: flex; min-height: 68px; align-items: center; justify-content: space-between; gap: 14px 24px; padding: 12px 24px; border-bottom: 1px solid #dfe5ef; background: #fff; box-shadow: 0 3px 14px #263c630c; }
+    .site-header { position: sticky; top: 0; z-index: 10; display: flex; min-height: 68px; align-items: center; justify-content: space-between; gap: 14px 24px; padding: 12px 24px; border-bottom: 1px solid #dfe5ef; background: #fff; box-shadow: 0 3px 14px #263c630c; }
     .brand { display: inline-flex; align-items: center; gap: 9px; color: #1b2940; font-size: .95rem; font-weight: 760; letter-spacing: -.025em; text-decoration: none; }
     .brand-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: linear-gradient(145deg, #3769e8, #2349b4); box-shadow: 0 4px 11px #345bc533; color: #fff; font-size: .84rem; font-weight: 800; }
     .preview-label { flex: none; padding: 6px 9px; border: 1px solid #e1e8f5; border-radius: 999px; background: #f7f9fd; color: #6d7b92; font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }

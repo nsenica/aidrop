@@ -37,7 +37,7 @@ var catalogTemplate = template.Must(template.New("catalog").Parse(`{{define "sty
   a { color: inherit; }
   a:focus-visible { outline: 3px solid #8ba7ff; outline-offset: 4px; border-radius: 5px; }
   .page-shell { width: min(100%, 1120px); margin: 0 auto; padding: 30px 28px 56px; }
-  .site-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 48px; padding-bottom: 20px; border-bottom: 1px solid #dfe5ef; }
+  .site-header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 48px; padding-bottom: 20px; border-bottom: 1px solid #dfe5ef; background: #f4f6fb; }
   .brand { display: inline-flex; align-items: center; gap: 10px; color: #1b2940; font-size: .98rem; font-weight: 760; letter-spacing: -.025em; text-decoration: none; }
   .brand a { color: inherit; text-decoration: none; }
   .brand a:hover { color: #315ed0; }
