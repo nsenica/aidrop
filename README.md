@@ -53,7 +53,9 @@ curl -fsS \
   http://127.0.0.1:6420/api/v1/projects/demo/artifacts/notes
 ```
 
-The response includes a stable public URL for the new artifact.
+The response's `url` is a relative path. Resolve it against your configured AI
+Drop base URL before sharing it. See the [sharing guide](docs/REFERENCE.md#sharing-published-artifact-urls)
+for an example.
 
 Markdown previews render Mermaid flowcharts, sequence diagrams, and class
 diagrams from fenced blocks. PlantUML class and sequence diagrams are also
