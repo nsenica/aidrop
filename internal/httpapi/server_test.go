@@ -3,9 +3,11 @@ package httpapi
 import (
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -59,6 +61,115 @@ func TestMermaidRendererAssetIsServedFromSameOrigin(t *testing.T) {
 	}
 }
 
+func TestJavaScriptAssetsNegotiateGzip(t *testing.T) {
+	handler := newTestHandler(t, "secret-value")
+	paths := []string{
+		"/assets/mermaid.tiny.min.js",
+		"/assets/plantuml/1.2026.9/plantuml.js",
+		"/assets/plantuml/1.2026.9/viz-global.js",
+		"/assets/plantuml/1.2026.9/themes.js",
+		"/assets/plantuml/1.2026.9/emoji.js",
+		"/assets/plantuml/1.2026.9/openiconic.js",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			identityRequest := httptest.NewRequest(http.MethodGet, path, nil)
+			identityRecorder := httptest.NewRecorder()
+			handler.ServeHTTP(identityRecorder, identityRequest)
+			if identityRecorder.Code != http.StatusOK {
+				t.Fatalf("identity status=%d, want %d", identityRecorder.Code, http.StatusOK)
+			}
+
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			request.Header.Set("Accept-Encoding", "gzip")
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status=%d, want %d", recorder.Code, http.StatusOK)
+			}
+			if got := recorder.Header().Get("Content-Encoding"); got != "gzip" {
+				t.Fatalf("Content-Encoding=%q, want gzip", got)
+			}
+			if got := recorder.Header().Get("Vary"); got != "Accept-Encoding" {
+				t.Errorf("Vary=%q, want Accept-Encoding", got)
+			}
+			if got := recorder.Header().Get("Content-Length"); got != fmt.Sprint(recorder.Body.Len()) {
+				t.Errorf("Content-Length=%q, want %d", got, recorder.Body.Len())
+			}
+			reader, err := gzip.NewReader(bytes.NewReader(recorder.Body.Bytes()))
+			if err != nil {
+				t.Fatalf("open gzip body: %v", err)
+			}
+			decoded, err := io.ReadAll(reader)
+			if err != nil {
+				t.Fatalf("read gzip body: %v", err)
+			}
+			if err := reader.Close(); err != nil {
+				t.Fatalf("close gzip reader: %v", err)
+			}
+			if !bytes.Equal(decoded, identityRecorder.Body.Bytes()) {
+				t.Error("decompressed JavaScript differs from the identity response")
+			}
+		})
+	}
+}
+
+func TestJavaScriptAssetsServeIdentityWhenGzipIsNotAccepted(t *testing.T) {
+	handler := newTestHandler(t, "secret-value")
+	paths := []string{
+		"/assets/mermaid.tiny.min.js",
+		"/assets/plantuml/1.2026.9/plantuml.js",
+		"/assets/plantuml/1.2026.9/viz-global.js",
+		"/assets/plantuml/1.2026.9/themes.js",
+		"/assets/plantuml/1.2026.9/emoji.js",
+		"/assets/plantuml/1.2026.9/openiconic.js",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			request.Header.Set("Accept-Encoding", "gzip;q=0, *;q=1")
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status=%d, want %d", recorder.Code, http.StatusOK)
+			}
+			if got := recorder.Header().Get("Content-Encoding"); got != "" {
+				t.Errorf("Content-Encoding=%q, want absent", got)
+			}
+			if got := recorder.Header().Get("Vary"); got != "Accept-Encoding" {
+				t.Errorf("Vary=%q, want Accept-Encoding", got)
+			}
+			if recorder.Body.Len() == 0 {
+				t.Fatal("identity JavaScript body is empty")
+			}
+			if got := recorder.Header().Get("Content-Length"); got != fmt.Sprint(recorder.Body.Len()) {
+				t.Errorf("Content-Length=%q, want %d", got, recorder.Body.Len())
+			}
+		})
+	}
+}
+
+func TestJavaScriptAssetsHEADHasNoBody(t *testing.T) {
+	handler := newTestHandler(t, "secret-value")
+	for _, path := range []string{"/assets/mermaid.tiny.min.js", "/assets/plantuml/1.2026.9/plantuml.js"} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodHead, path, nil)
+			request.Header.Set("Accept-Encoding", "gzip")
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status=%d, want %d", recorder.Code, http.StatusOK)
+			}
+			if recorder.Body.Len() != 0 {
+				t.Errorf("HEAD body length=%d, want 0", recorder.Body.Len())
+			}
+			if got := recorder.Header().Get("Content-Encoding"); got != "gzip" {
+				t.Errorf("Content-Encoding=%q, want gzip", got)
+			}
+		})
+	}
+}
+
 func TestPlantUMLRendererFrameIsSandboxedAndLocallyBound(t *testing.T) {
 	handler := newTestHandler(t, "secret-value")
 	response := performRequest(handler, http.MethodGet, "/assets/plantuml-frame.html", "", "", nil)
@@ -94,9 +205,13 @@ func TestPlantUMLRendererFrameIsSandboxedAndLocallyBound(t *testing.T) {
 		"/assets/plantuml/1.2026.9/viz-global.js",
 		"import(\"/assets/plantuml/1.2026.9/plantuml.js\")",
 		`<div id="plantuml-output"></div>`,
-		`#plantuml-output svg { display: block; width: 100%; height: auto; margin: 0 auto; }`,
+		`const queue = [];`,
+		`let rendering = false;`,
+		`const fail = requestId => send({type:"aidrop-plantuml-error", requestId});`,
 		`document.getElementById("plantuml-output")`,
-		`renderToString(source.split(/\r\n|\r|\n/), svgSource =>`,
+		`renderToString(request.source.split(/\r\n|\r|\n/), svgSource =>`,
+		`requestId:request.requestId`,
+		`svg:new XMLSerializer().serializeToString(svg)`,
 		`/PlantUML version\b[\s\S]*Syntax Error\?/i`,
 		`/(?:-->>|-->|->>|->)\s*:/m`,
 		`{maxSvgSize:8192}`,
@@ -773,6 +888,7 @@ func TestMarkdownPlantUMLPublishUsesConditionalLocalFrame(t *testing.T) {
 	for _, want := range []string{
 		"default-src 'none'",
 		"frame-src 'self'",
+		"img-src blob:",
 	} {
 		if !strings.Contains(csp, want) {
 			t.Errorf("PlantUML Markdown CSP=%q, missing %q", csp, want)
@@ -782,7 +898,7 @@ func TestMarkdownPlantUMLPublishUsesConditionalLocalFrame(t *testing.T) {
 		t.Error("PlantUML parent page CSP should not allow external hosts")
 	}
 	for _, want := range []string{
-		`frame.src = "/assets/plantuml-frame.html?v=9"`,
+		`frame.src = "/assets/plantuml-frame.html?v=10"`,
 		`frame.setAttribute("sandbox", "allow-scripts")`,
 		`<code class="language-plantuml">`,
 		`<code class="language-puml">`,

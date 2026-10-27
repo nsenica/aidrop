@@ -120,8 +120,11 @@ sequenceDiagram
 ````
 
 AI Drop bundles Mermaid Tiny 12.2.0 locally, so diagram previews need no remote
-scripts or assets. The renderer uses strict security settings for uploaded
-diagram text; malformed or unsupported diagrams remain readable as source.
+scripts or assets. The vendored JavaScript is already minified; responses use
+gzip when the client supports it (the bundle transfers at about 755 KB / 738
+KiB), with an uncompressed identity response for clients that do not.
+The renderer uses strict security settings for uploaded diagram text; malformed
+or unsupported diagrams remain readable as source.
 The vendored bundle's MIT license is in
 [`internal/mdview/assets/MERMAID-LICENSE.txt`](../internal/mdview/assets/MERMAID-LICENSE.txt).
 
@@ -139,15 +142,22 @@ Bob --> Alice: Return the public URL
 PlantUML is rendered in the browser with the official TeaVM engine from the
 version-pinned MIT package `@plantuml/core@1.2026.9`. AIDrop bundles and serves
 the renderer and its package assets locally, so PlantUML previews need no
-third-party CDN or internet connection. Diagram source is never sent to a
-remote rendering service. Rendering happens inside a sandboxed `allow-scripts`
-iframe with a restrictive policy that permits local package scripts, inline
-SVG rendering inside the isolated frame, and no network connections for
-diagram content. Remote `!includeurl` resources are therefore unavailable.
-If the parser or renderer fails, the original PlantUML source remains visible
-in the Markdown preview. The source disclosure and authenticated source
-endpoint continue to preserve the exact uploaded Markdown bytes. The bundled
-MIT license and package version are recorded under
+third-party CDN or internet connection. The vendored TeaVM and Graphviz files
+are already minified/precompiled; gzip transfer for the two largest runtime
+files is about 1.12 MB for `plantuml.js` and 601 KB for `viz-global.js` (about
+1.64 MiB together). The earlier 6.8 MiB figure covered the full uncompressed
+PlantUML JavaScript package, including theme and sprite files; a normal page
+loads the two main runtime files once. Diagram source is never sent to a
+remote rendering service. Each Markdown page uses one sandboxed `allow-scripts`
+renderer frame and initializes the runtime once; diagrams are sent to it one
+at a time.
+The restrictive policy permits local package scripts and inline SVG rendering
+inside the isolated frame while denying network connections for diagram
+content. Remote `!includeurl` resources are therefore unavailable. If the
+parser or renderer fails, the original PlantUML source remains visible in the
+Markdown preview. The source disclosure and authenticated source endpoint
+continue to preserve the exact uploaded Markdown bytes. The bundled MIT
+license and package version are recorded under
 [`internal/mdview/assets/plantuml`](../internal/mdview/assets/plantuml/).
 
 Rendering sanitizes raw HTML and keeps dangerous links inert, so uploaded

@@ -71,14 +71,22 @@ Agent -> AI_Drop: Publish
 ```
 
 The Mermaid renderer is bundled with AI Drop, so previews do not load diagram
-scripts from external services.
+scripts from external services. The vendored Tiny bundle is already minified;
+when the browser advertises gzip support, its JavaScript transfer is about
+755 KB (738 KiB), while clients without gzip receive the same valid JavaScript
+uncompressed.
 
 PlantUML uses the official, MIT-licensed browser engine from the pinned
 `@plantuml/core@1.2026.9` package. AIDrop serves its renderer assets locally,
 so PlantUML previews work without a third-party CDN or an internet connection.
 Diagram source stays in the browser and is never sent to a rendering service.
-The renderer runs in a sandboxed frame and blocks remote PlantUML includes.
-If rendering fails, the original fenced source remains visible.
+The vendored TeaVM and Graphviz runtime files are already minified/precompiled;
+gzip transfer for the two main files is about 1.12 MB for the PlantUML engine
+and 601 KB for `viz-global` (about 1.64 MiB together). A Markdown page creates
+one sandboxed renderer frame and initializes those assets once;
+multiple diagrams are rendered through that frame in sequence. Remote
+PlantUML includes are blocked. If rendering fails, the original fenced source
+remains visible.
 
 ## Security
 

@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -25,6 +27,8 @@ type server struct {
 	bearerToken    string
 	allowedOrigins []string
 	repository     *storage.Repository
+	mermaidGzip    []byte
+	plantUMLGzip   map[string][]byte
 }
 
 // NewHandler builds the public and management routes for the service.
@@ -33,6 +37,13 @@ func NewHandler(cfg config.Config, repository *storage.Repository) http.Handler 
 		bearerToken:    cfg.BearerToken,
 		allowedOrigins: cfg.AllowedOrigins,
 		repository:     repository,
+		mermaidGzip:    gzipAsset(mdview.MermaidJavaScript()),
+		plantUMLGzip:   make(map[string][]byte),
+	}
+	for _, name := range []string{"plantuml.js", "viz-global.js", "themes.js", "emoji.js", "openiconic.js"} {
+		if asset, ok := mdview.PlantUMLAsset(name); ok {
+			s.plantUMLGzip[name] = gzipAsset(asset)
+		}
 	}
 	management := http.NewServeMux()
 	management.HandleFunc("/projects", s.projects)
@@ -63,14 +74,12 @@ func (s *server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *server) mermaidJavaScript(w http.ResponseWriter, _ *http.Request) {
+func (s *server) mermaidJavaScript(w http.ResponseWriter, r *http.Request) {
 	script := mdview.MermaidJavaScript()
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	w.Header().Set("Content-Length", strconv.Itoa(len(script)))
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(script)
+	writeJavaScriptAsset(w, r, script, s.mermaidGzip)
 }
 
 func (s *server) plantUMLRenderer(w http.ResponseWriter, r *http.Request) {
@@ -100,15 +109,72 @@ func (s *server) plantUMLAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	w.Header().Set("Content-Length", strconv.Itoa(len(asset)))
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	writeJavaScriptAsset(w, r, asset, s.plantUMLGzip[r.PathValue("asset")])
+}
+
+func writeJavaScriptAsset(w http.ResponseWriter, r *http.Request, identity, compressed []byte) {
+	body := identity
+	if acceptsGzip(r.Header.Get("Accept-Encoding")) && len(compressed) > 0 {
+		body = compressed
+		w.Header().Set("Content-Encoding", "gzip")
+	}
+	w.Header().Set("Vary", "Accept-Encoding")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
 	if r.Method == http.MethodHead {
 		return
 	}
-	_, _ = w.Write(asset)
+	_, _ = w.Write(body)
+}
+
+func acceptsGzip(header string) bool {
+	var gzipQuality, wildcardQuality float64
+	var hasGzip, hasWildcard bool
+	for _, value := range strings.Split(header, ",") {
+		parts := strings.Split(value, ";")
+		encoding := strings.ToLower(strings.TrimSpace(parts[0]))
+		if encoding == "" {
+			continue
+		}
+		quality := 1.0
+		for _, parameter := range parts[1:] {
+			keyValue := strings.SplitN(parameter, "=", 2)
+			if len(keyValue) != 2 || !strings.EqualFold(strings.TrimSpace(keyValue[0]), "q") {
+				continue
+			}
+			parsed, err := strconv.ParseFloat(strings.TrimSpace(keyValue[1]), 64)
+			if err != nil || parsed < 0 || parsed > 1 {
+				quality = 0
+			} else {
+				quality = parsed
+			}
+		}
+		switch encoding {
+		case "gzip":
+			gzipQuality, hasGzip = quality, true
+		case "*":
+			wildcardQuality, hasWildcard = quality, true
+		}
+	}
+	if hasGzip {
+		return gzipQuality > 0
+	}
+	return hasWildcard && wildcardQuality > 0
+}
+
+func gzipAsset(identity []byte) []byte {
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(identity); err != nil {
+		return nil
+	}
+	if err := writer.Close(); err != nil {
+		return nil
+	}
+	return compressed.Bytes()
 }
 
 func (s *server) notFound(w http.ResponseWriter, _ *http.Request) {
@@ -312,7 +378,7 @@ func (s *server) publicArtifact(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			contentSecurityPolicy := "default-src 'none'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 			if hasPlantUML {
-				contentSecurityPolicy += "; frame-src 'self'"
+				contentSecurityPolicy += "; frame-src 'self'; img-src blob:"
 			}
 			w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
 			w.Header().Set("X-Content-Type-Options", "nosniff")

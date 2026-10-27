@@ -68,7 +68,7 @@ var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype 
     .prose .mermaid-diagram svg { max-width: 100%; height: auto; }
     .prose .mermaid-fallback { margin: 1.1rem 0 -.9rem; color: #8a5a12; font-size: .88rem; }
     .prose .plantuml-diagram { max-width: 100%; margin: 1.35rem 0; overflow: hidden; border: 1px solid #e1e7f0; border-radius: 12px; background: #fff; }
-    .prose .plantuml-diagram iframe { display: block; width: 100%; border: 0; background: #fff; }
+    .prose .plantuml-diagram img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
     .plantuml-renderer-pending { position: fixed !important; top: 0 !important; left: -10000px !important; width: min(920px, 100vw) !important; height: 600px !important; visibility: hidden !important; overflow: hidden !important; border: 0 !important; }
     .plantuml-renderer-pending iframe { display: block; width: 100%; height: 100%; border: 0; }
     .prose .plantuml-fallback { margin: 1.1rem 0 -.9rem; color: #8a5a12; font-size: .88rem; }
@@ -195,49 +195,147 @@ var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype 
   {{if .HasPlantUML}}
   <script>
     (() => {
-      const pending = new Map();
+      const queue = [];
+      let renderer = null;
+      let active = null;
+      let nextRequestId = 1;
       const showFallback = pre => {
         const notice = document.createElement("p");
         notice.className = "plantuml-fallback";
         notice.textContent = "PlantUML preview unavailable; source is shown below.";
         pre.parentNode.insertBefore(notice, pre);
       };
-      const fail = frame => {
-        const item = pending.get(frame.contentWindow);
-        if (!item) return;
-        clearTimeout(item.timeout);
-        pending.delete(frame.contentWindow);
-        item.wrapper.remove();
-        showFallback(item.pre);
+      const fallback = item => {
+        if (item.pre.isConnected) showFallback(item.pre);
+      };
+      const clearRenderer = () => {
+        if (!renderer) return;
+        clearTimeout(renderer.timeout);
+        renderer.wrapper.remove();
+        renderer = null;
+      };
+      const failRenderer = () => {
+        if (active) {
+          clearTimeout(active.timeout);
+          if (active.imageURL) URL.revokeObjectURL(active.imageURL);
+          if (active.outputWrapper) active.outputWrapper.remove();
+          fallback(active.item);
+        }
+        active = null;
+        queue.splice(0).forEach(fallback);
+        clearRenderer();
+      };
+      const safeSVG = source => {
+        if (typeof source !== "string" || source.length > 1000000) return null;
+        const parsed = new DOMParser().parseFromString(source, "image/svg+xml");
+        const svg = parsed.documentElement;
+        if (parsed.querySelector("parsererror") || svg.localName !== "svg" || svg.namespaceURI !== "http://www.w3.org/2000/svg") return null;
+        svg.querySelectorAll("script, foreignObject, iframe, object, embed, audio, video, feImage, animate, animateMotion, animateTransform, set").forEach(element => element.remove());
+        const elements = [svg, ...svg.querySelectorAll("*")];
+        const safeImageData = /^data:image\/(?:png|gif|jpe?g|webp);base64,/i;
+        const unsafeCSSURL = value => {
+          const safeFragmentsRemoved = value.replace(/url\(\s*(['"]?)#[A-Za-z0-9_.:-]+\1\s*\)/gi, "");
+          return /url\s*\(|@import/i.test(safeFragmentsRemoved);
+        };
+        for (const element of elements) {
+          if (element.namespaceURI !== "http://www.w3.org/2000/svg") {
+            element.remove();
+            continue;
+          }
+          for (const attribute of [...element.attributes]) {
+            const name = attribute.localName.toLowerCase();
+            const value = attribute.value.trim();
+            if (name.startsWith("on") || name === "srcdoc" || name === "base") {
+              element.removeAttributeNode(attribute);
+            } else if ((name === "href" || name === "src") && value && !value.startsWith("#") && !safeImageData.test(value)) {
+              element.removeAttributeNode(attribute);
+            } else if (unsafeCSSURL(value)) {
+              element.removeAttributeNode(attribute);
+            }
+          }
+          if (element.localName === "style" && unsafeCSSURL(element.textContent || "")) element.remove();
+        }
+        return new Blob([new XMLSerializer().serializeToString(svg)], {type:"image/svg+xml"});
+      };
+      const pump = () => {
+        if (!renderer?.ready || active) return;
+        if (queue.length === 0) {
+          clearRenderer();
+          return;
+        }
+        const item = queue.shift();
+        const requestId = nextRequestId++;
+        active = {item, requestId};
+        active.timeout = window.setTimeout(failRenderer, 30000);
+        renderer.frame.contentWindow.postMessage({type:"aidrop-plantuml-render", requestId, source:item.source}, "*");
+      };
+      const finishActive = requestId => {
+        if (!active || (requestId !== undefined && active.requestId !== requestId)) return;
+        clearTimeout(active.timeout);
+        active = null;
+        pump();
+      };
+      const receiveRendered = data => {
+        if (!active || data.requestId !== active.requestId) return;
+        const width = Number(data.width);
+        const height = Number(data.height);
+        let blob = null;
+        try {
+          blob = safeSVG(data.svg);
+        } catch (_) {}
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 100000 || height > 100000 || !blob) {
+          fallback(active.item);
+          finishActive();
+          return;
+        }
+        const item = active.item;
+        const imageURL = URL.createObjectURL(blob);
+        const wrapper = document.createElement("div");
+        wrapper.className = "plantuml-diagram";
+        const image = document.createElement("img");
+        image.alt = "PlantUML diagram";
+        image.setAttribute("role", "img");
+        image.style.width = Math.min(920, Math.max(400, width)) + "px";
+        active.imageURL = imageURL;
+        active.outputWrapper = wrapper;
+        image.addEventListener("load", () => {
+          URL.revokeObjectURL(imageURL);
+          if (!active || active.requestId !== data.requestId) {
+            wrapper.remove();
+            return;
+          }
+          item.pre.remove();
+          finishActive(data.requestId);
+        }, {once:true});
+        image.addEventListener("error", () => {
+          URL.revokeObjectURL(imageURL);
+          wrapper.remove();
+          if (!active || active.requestId !== data.requestId) return;
+          fallback(item);
+          finishActive(data.requestId);
+        }, {once:true});
+        image.src = imageURL;
+        wrapper.append(image);
+        item.pre.parentNode.insertBefore(wrapper, item.pre);
       };
       window.addEventListener("message", event => {
-        const item = pending.get(event.source);
-        if (!item || !event.data) return;
+        if (!renderer || event.source !== renderer.frame.contentWindow || !event.data) return;
         if (event.data.type === "aidrop-plantuml-ready") {
-          event.source.postMessage({type:"aidrop-plantuml-render", source:item.source}, "*");
+          renderer.ready = true;
+          clearTimeout(renderer.timeout);
+          pump();
           return;
         }
         if (event.data.type === "aidrop-plantuml-error") {
-          fail(item.frame);
+          if (active && event.data.requestId === active.requestId) {
+            fallback(active.item);
+            finishActive(active.requestId);
+          } else if (typeof event.data.requestId !== "number") {
+            failRenderer();
+          }
           return;
         }
-        if (event.data.type !== "aidrop-plantuml-rendered") return;
-        const width = Number(event.data.width);
-        const height = Number(event.data.height);
-        if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
-          fail(item.frame);
-          return;
-        }
-        clearTimeout(item.timeout);
-        pending.delete(event.source);
-        const frameWidth = item.pre.getBoundingClientRect().width;
-        const diagramWidth = Math.min(frameWidth, Math.max(width, Math.min(400, frameWidth)));
-        const scale = diagramWidth / width;
-        item.wrapper.className = "plantuml-diagram";
-        item.frame.style.width = diagramWidth + "px";
-        item.frame.style.margin = "0 auto";
-        item.frame.style.height = Math.min(8192, Math.max(140, Math.ceil(height * scale))) + "px";
-        item.pre.remove();
+        if (event.data.type === "aidrop-plantuml-rendered") receiveRendered(event.data);
       });
       document.querySelectorAll(".prose pre > code.language-plantuml, .prose pre > code.language-puml").forEach(code => {
         const pre = code.parentElement;
@@ -246,18 +344,21 @@ var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype 
           showFallback(pre);
           return;
         }
+        queue.push({pre, source});
+      });
+      if (queue.length) {
         const wrapper = document.createElement("div");
         wrapper.className = "plantuml-renderer-pending";
         const frame = document.createElement("iframe");
         frame.setAttribute("sandbox", "allow-scripts");
-        frame.setAttribute("title", "PlantUML diagram");
+        frame.setAttribute("title", "PlantUML renderer");
         frame.setAttribute("referrerpolicy", "no-referrer");
-        const timeout = window.setTimeout(() => fail(frame), 30000);
         wrapper.append(frame);
-        pre.parentNode.insertBefore(wrapper, pre);
-        pending.set(frame.contentWindow, {frame, wrapper, pre, source, timeout});
-        frame.src = "/assets/plantuml-frame.html?v=9";
-      });
+        document.body.append(wrapper);
+        renderer = {frame, wrapper, ready:false};
+        renderer.timeout = window.setTimeout(failRenderer, 30000);
+        frame.src = "/assets/plantuml-frame.html?v=10";
+      }
     })();
   </script>
   {{end}}

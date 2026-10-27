@@ -20,41 +20,52 @@ func PlantUMLRendererPage() []byte {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     html, body { min-height: 100%; margin: 0; background: #fff; }
-    #plantuml-output svg { display: block; width: 100%; height: auto; margin: 0 auto; }
+    #plantuml-output { position: fixed; top: 0; left: 0; }
   </style>
   <script>window.PLANTUML_STDLIB_BASE = "` + plantUMLAssetBase + `";</script>
   <script src="` + plantUMLAssetBase + `viz-global.js"></script>
   <script type="module">
     const send = message => parent.postMessage(message, "*");
     import("` + plantUMLAssetBase + `plantuml.js").then(({renderToString}) => {
-      let used = false;
+      const queue = [];
+      let rendering = false;
       const output = document.getElementById("plantuml-output");
-      window.addEventListener("message", event => {
-        if (event.source !== parent || used || event.data?.type !== "aidrop-plantuml-render") return;
-        used = true;
-        const source = event.data.source;
-        if (typeof source !== "string" || source.length > 50000) {
-          send({type:"aidrop-plantuml-error"});
+      const fail = requestId => send({type:"aidrop-plantuml-error", requestId});
+      const renderNext = () => {
+        if (rendering || queue.length === 0) return;
+        rendering = true;
+        const request = queue.shift();
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          output.replaceChildren();
+          rendering = false;
+          renderNext();
+        };
+        if (typeof request.source !== "string" || request.source.length > 50000) {
+          fail(request.requestId);
+          finish();
           return;
         }
         try {
-          renderToString(source.split(/\r\n|\r|\n/), svgSource => {
+          renderToString(request.source.split(/\r\n|\r|\n/), svgSource => {
             try {
               if (typeof svgSource !== "string" || svgSource.length > 1000000) {
-                send({type:"aidrop-plantuml-error"});
+                fail(request.requestId);
                 return;
               }
               const parsed = new DOMParser().parseFromString(svgSource, "image/svg+xml");
               if (parsed.querySelector("parsererror") || parsed.documentElement.localName !== "svg") {
-                send({type:"aidrop-plantuml-error"});
+                fail(request.requestId);
                 return;
               }
               const svg = document.importNode(parsed.documentElement, true);
               const svgText = svg.textContent || "";
               const hasSyntaxError = /PlantUML version\b[\s\S]*Syntax Error\?/i.test(svgText);
-              const hasMissingTarget = /missing target/i.test(svgText) && /(?:-->>|-->|->>|->)\s*:/m.test(source);
+              const hasMissingTarget = /missing target/i.test(svgText) && /(?:-->>|-->|->>|->)\s*:/m.test(request.source);
               if (hasSyntaxError || hasMissingTarget) {
-                send({type:"aidrop-plantuml-error"});
+                fail(request.requestId);
                 return;
               }
               output.replaceChildren(svg);
@@ -63,17 +74,39 @@ func PlantUMLRendererPage() []byte {
               const width = viewBox.width || bounds.width;
               const height = viewBox.height || bounds.height;
               if (width < 1 || height < 1) {
-                send({type:"aidrop-plantuml-error"});
+                fail(request.requestId);
                 return;
               }
-              send({type:"aidrop-plantuml-rendered", width, height});
+              send({
+                type:"aidrop-plantuml-rendered",
+                requestId:request.requestId,
+                width,
+                height,
+                svg:new XMLSerializer().serializeToString(svg)
+              });
             } catch (_) {
-              send({type:"aidrop-plantuml-error"});
+              fail(request.requestId);
+            } finally {
+              finish();
             }
-          }, () => send({type:"aidrop-plantuml-error"}), {maxSvgSize:8192});
+          }, () => {
+            fail(request.requestId);
+            finish();
+          }, {maxSvgSize:8192});
         } catch (_) {
-          send({type:"aidrop-plantuml-error"});
+          fail(request.requestId);
+          finish();
         }
+      };
+      window.addEventListener("message", event => {
+        if (event.source !== parent || event.data?.type !== "aidrop-plantuml-render") return;
+        if (typeof event.data.requestId !== "number" || !Number.isSafeInteger(event.data.requestId)) return;
+        if (queue.length >= 50) {
+          fail(event.data.requestId);
+          return;
+        }
+        queue.push({requestId:event.data.requestId, source:event.data.source});
+        renderNext();
       });
       send({type:"aidrop-plantuml-ready"});
     }).catch(() => send({type:"aidrop-plantuml-error"}));

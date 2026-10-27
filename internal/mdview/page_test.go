@@ -138,9 +138,16 @@ func TestRenderPageSupportsPlantUMLAndPreservesFallbackSource(t *testing.T) {
 	for _, want := range []string{
 		`<code class="language-plantuml">`,
 		`<code class="language-puml">`,
-		`frame.src = "/assets/plantuml-frame.html?v=9"`,
+		`frame.src = "/assets/plantuml-frame.html?v=10"`,
 		`frame.setAttribute("sandbox", "allow-scripts")`,
 		`.plantuml-renderer-pending { position: fixed`,
+		`.prose .plantuml-diagram img { display: block`,
+		`queue.push({pre, source});`,
+		`requestId, source:item.source`,
+		`const safeSVG = source =>`,
+		`script, foreignObject, iframe, object, embed`,
+		`const imageURL = URL.createObjectURL(blob);`,
+		`image.src = imageURL;`,
 		`PlantUML preview unavailable; source is shown below.`,
 		`@startuml`,
 		`not valid PlantUML`,
@@ -150,15 +157,11 @@ func TestRenderPageSupportsPlantUMLAndPreservesFallbackSource(t *testing.T) {
 			t.Errorf("rendered PlantUML page does not contain %q", want)
 		}
 	}
-	appendFrameToWrapper := strings.Index(contents, "wrapper.append(frame);")
-	insertWrapperBeforeSource := strings.Index(contents, "pre.parentNode.insertBefore(wrapper, pre);")
-	registerFrame := strings.Index(contents, "pending.set(frame.contentWindow, {frame, wrapper, pre, source, timeout});")
-	navigateFrame := strings.Index(contents, `frame.src = "/assets/plantuml-frame.html?v=9"`)
-	if appendFrameToWrapper < 0 || insertWrapperBeforeSource < 0 || registerFrame < 0 || navigateFrame < 0 || appendFrameToWrapper > insertWrapperBeforeSource || insertWrapperBeforeSource > registerFrame || registerFrame > navigateFrame {
-		t.Error("PlantUML iframe must be attached at the source position and registered before navigation so its WindowProxy is available for messaging")
+	if got := strings.Count(contents, `frame.src = "/assets/plantuml-frame.html?v=10"`); got != 1 {
+		t.Errorf("PlantUML page creates %d renderer frames, want one shared frame", got)
 	}
-	if !strings.Contains(contents, "item.pre.remove();") {
-		t.Error("PlantUML render must reveal the existing wrapper in place without moving and reloading its iframe")
+	if !strings.Contains(contents, "item.pre.remove();") || !strings.Contains(contents, "if (item.pre.isConnected) showFallback(item.pre);") {
+		t.Error("PlantUML source should be removed only after successful image load and remain visible on failure")
 	}
 	if strings.Contains(contents, "plantuml.com/plantuml") {
 		t.Error("PlantUML page references an unapproved remote renderer")
