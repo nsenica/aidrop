@@ -82,6 +82,22 @@ curl -fsS -H "Authorization: Bearer $AIDROP_BEARER_TOKEN" \
 Replace `demo` and `homepage` with lowercase kebab-case slugs. The public view
 is unauthenticated; management and source routes require the bearer token.
 
+### Sharing published artifact URLs
+
+The REST metadata `url` field and MCP publishing tools' `url` field contain a
+path such as `/p/demo/homepage/`, relative to the configured AIDrop server
+address. A receiving agent should use the AIDrop base URL configured for its
+integration and resolve the path into an absolute URL; it should not infer the
+server address from the artifact.
+
+```js
+const aidropBaseURL = "https://aidrop.example"; // configured for this integration
+const shareURL = new URL(result.url, aidropBaseURL).toString();
+```
+
+For `result.url === "/p/demo/homepage/"`, this produces
+`https://aidrop.example/p/demo/homepage/`.
+
 ## Markdown API
 
 Send `text/markdown` to the authenticated POST or PUT artifact endpoint to
@@ -251,6 +267,11 @@ The endpoint provides these tools over the same repository operations as REST:
 | `read_artifact_file` | Read a bounded textual file from a ZIP site |
 | `delete_artifact` | Delete one artifact |
 | `delete_project` | Delete a project after exact slug confirmation |
+
+The `url` returned by publishing and listing tools is the same path-relative
+value described in [Sharing published artifact URLs](#sharing-published-artifact-urls).
+Combine it with the MCP client's configured AIDrop base address before sending
+the link to another agent or user.
 
 Inline HTML and Markdown bodies, textual artifact sources, and textual ZIP file
 reads are capped at 1 MiB. Use the authenticated REST endpoints when uploading
