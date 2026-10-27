@@ -1,12 +1,12 @@
 package mdview
 
-const plantUMLAssetBase = "https://unpkg.com/@plantuml/core@1.2026.9/"
+const plantUMLAssetBase = "/assets/plantuml/" + PlantUMLAssetVersion + "/"
 
-// PlantUMLRendererCSP limits the isolated renderer to its pinned CDN scripts
-// and its blob-backed worker. The sandbox prevents the renderer from acquiring
-// the service origin even when this endpoint is opened directly.
+// PlantUMLRendererCSP limits the isolated renderer to local scripts and its
+// blob-backed worker. The sandbox prevents the renderer from acquiring the
+// service origin even when this endpoint is opened directly.
 func PlantUMLRendererCSP() string {
-	return "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval' " + plantUMLAssetBase + "; style-src 'unsafe-inline'; worker-src blob:; connect-src 'none'; base-uri 'none'; form-action 'none'"
+	return "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; worker-src blob:; connect-src 'none'; base-uri 'none'; form-action 'none'"
 }
 
 // PlantUMLRendererPage returns the small browser-side bridge used by Markdown

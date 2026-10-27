@@ -256,7 +256,7 @@ var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype 
         wrapper.append(frame);
         pre.parentNode.insertBefore(wrapper, pre);
         pending.set(frame.contentWindow, {frame, wrapper, pre, source, timeout});
-        frame.src = "/assets/plantuml-frame.html?v=8";
+        frame.src = "/assets/plantuml-frame.html?v=9";
       });
     })();
   </script>

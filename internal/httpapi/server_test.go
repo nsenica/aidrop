@@ -59,7 +59,7 @@ func TestMermaidRendererAssetIsServedFromSameOrigin(t *testing.T) {
 	}
 }
 
-func TestPlantUMLRendererFrameIsSandboxedAndCDNBound(t *testing.T) {
+func TestPlantUMLRendererFrameIsSandboxedAndLocallyBound(t *testing.T) {
 	handler := newTestHandler(t, "secret-value")
 	response := performRequest(handler, http.MethodGet, "/assets/plantuml-frame.html", "", "", nil)
 	if response.Code != http.StatusOK {
@@ -80,7 +80,7 @@ func TestPlantUMLRendererFrameIsSandboxedAndCDNBound(t *testing.T) {
 	csp := response.Header().Get("Content-Security-Policy")
 	for _, want := range []string{
 		"default-src 'none'",
-		"script-src 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com/@plantuml/core@1.2026.9/",
+		"script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
 		"worker-src blob:",
 		"connect-src 'none'",
 		"sandbox allow-scripts",
@@ -90,9 +90,9 @@ func TestPlantUMLRendererFrameIsSandboxedAndCDNBound(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"window.PLANTUML_STDLIB_BASE = \"https://unpkg.com/@plantuml/core@1.2026.9/\"",
-		"https://unpkg.com/@plantuml/core@1.2026.9/viz-global.js",
-		"https://unpkg.com/@plantuml/core@1.2026.9/plantuml.js",
+		"window.PLANTUML_STDLIB_BASE = \"/assets/plantuml/1.2026.9/\"",
+		"/assets/plantuml/1.2026.9/viz-global.js",
+		"import(\"/assets/plantuml/1.2026.9/plantuml.js\")",
 		`<div id="plantuml-output"></div>`,
 		`#plantuml-output svg { display: block; width: 100%; height: auto; margin: 0 auto; }`,
 		`document.getElementById("plantuml-output")`,
@@ -106,11 +106,44 @@ func TestPlantUMLRendererFrameIsSandboxedAndCDNBound(t *testing.T) {
 			t.Errorf("PlantUML frame does not contain %q", want)
 		}
 	}
+	if strings.Contains(response.Body.String(), "https://") || strings.Contains(response.Body.String(), "http://") {
+		t.Error("PlantUML renderer frame references an external host")
+	}
 	if strings.Contains(response.Body.String(), "allow-same-origin") {
 		t.Error("PlantUML frame enables allow-same-origin")
 	}
 	if strings.Contains(response.Body.String(), "includeurl") {
 		t.Error("PlantUML frame exposes remote include support")
+	}
+}
+
+func TestPlantUMLAssetsAreServedLocally(t *testing.T) {
+	handler := newTestHandler(t, "secret-value")
+	for _, asset := range []string{"plantuml.js", "viz-global.js", "themes.js", "emoji.js", "openiconic.js"} {
+		t.Run(asset, func(t *testing.T) {
+			path := "/assets/plantuml/1.2026.9/" + asset
+			response := performRequest(handler, http.MethodGet, path, "", "", nil)
+			if response.Code != http.StatusOK {
+				t.Fatalf("PlantUML asset status=%d, want %d", response.Code, http.StatusOK)
+			}
+			if got := response.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+				t.Errorf("PlantUML asset content type=%q, want JavaScript", got)
+			}
+			if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+				t.Errorf("PlantUML asset CORS origin=%q, want * for sandboxed module loading", got)
+			}
+			if got := response.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+				t.Errorf("PlantUML asset Cache-Control=%q, want versioned immutable cache", got)
+			}
+			if len(response.Body.Bytes()) == 0 {
+				t.Error("PlantUML asset body is empty")
+			}
+		})
+	}
+
+	missing := performRequest(handler, http.MethodGet, "/assets/plantuml/1.2026.9/not-bundled.js", "", "", nil)
+	if missing.Code != http.StatusNotFound {
+		t.Errorf("unknown PlantUML asset status=%d, want %d", missing.Code, http.StatusNotFound)
 	}
 }
 
@@ -718,7 +751,7 @@ func TestMarkdownPublishRenderSourceAndUpdate(t *testing.T) {
 	}
 }
 
-func TestMarkdownPlantUMLPublishUsesConditionalCDNFrame(t *testing.T) {
+func TestMarkdownPlantUMLPublishUsesConditionalLocalFrame(t *testing.T) {
 	const token = "plantuml-integration-secret"
 	handler, _ := newTestService(t, token)
 	path := "/api/v1/projects/demo/artifacts/plantuml"
@@ -742,11 +775,11 @@ func TestMarkdownPlantUMLPublishUsesConditionalCDNFrame(t *testing.T) {
 			t.Errorf("PlantUML Markdown CSP=%q, missing %q", csp, want)
 		}
 	}
-	if strings.Contains(csp, "https://unpkg.com") {
-		t.Error("PlantUML parent page CSP should keep CDN permissions inside the renderer frame")
+	if strings.Contains(csp, "https://") || strings.Contains(csp, "http://") {
+		t.Error("PlantUML parent page CSP should not allow external hosts")
 	}
 	for _, want := range []string{
-		`frame.src = "/assets/plantuml-frame.html?v=8"`,
+		`frame.src = "/assets/plantuml-frame.html?v=9"`,
 		`frame.setAttribute("sandbox", "allow-scripts")`,
 		`<code class="language-plantuml">`,
 		`<code class="language-puml">`,

@@ -138,7 +138,7 @@ func TestRenderPageSupportsPlantUMLAndPreservesFallbackSource(t *testing.T) {
 	for _, want := range []string{
 		`<code class="language-plantuml">`,
 		`<code class="language-puml">`,
-		`frame.src = "/assets/plantuml-frame.html?v=8"`,
+		`frame.src = "/assets/plantuml-frame.html?v=9"`,
 		`frame.setAttribute("sandbox", "allow-scripts")`,
 		`.plantuml-renderer-pending { position: fixed`,
 		`PlantUML preview unavailable; source is shown below.`,
@@ -153,7 +153,7 @@ func TestRenderPageSupportsPlantUMLAndPreservesFallbackSource(t *testing.T) {
 	appendFrameToWrapper := strings.Index(contents, "wrapper.append(frame);")
 	insertWrapperBeforeSource := strings.Index(contents, "pre.parentNode.insertBefore(wrapper, pre);")
 	registerFrame := strings.Index(contents, "pending.set(frame.contentWindow, {frame, wrapper, pre, source, timeout});")
-	navigateFrame := strings.Index(contents, `frame.src = "/assets/plantuml-frame.html?v=8"`)
+	navigateFrame := strings.Index(contents, `frame.src = "/assets/plantuml-frame.html?v=9"`)
 	if appendFrameToWrapper < 0 || insertWrapperBeforeSource < 0 || registerFrame < 0 || navigateFrame < 0 || appendFrameToWrapper > insertWrapperBeforeSource || insertWrapperBeforeSource > registerFrame || registerFrame > navigateFrame {
 		t.Error("PlantUML iframe must be attached at the source position and registered before navigation so its WindowProxy is available for messaging")
 	}

@@ -1,0 +1,8 @@
+title = "AIDrop secret scanning"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Pinned Viz.js WASM payload in the verified PlantUML bundle matches the AWS access-token pattern."
+paths = ['''viz-global\.js$''']

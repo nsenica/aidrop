@@ -50,6 +50,7 @@ func NewHandler(cfg config.Config, repository *storage.Repository) http.Handler 
 	mux.Handle("/mcp", s.mcpCORS(s.authenticate(newMCPHTTPHandler(s))))
 	mux.HandleFunc("GET /assets/mermaid.tiny.min.js", s.mermaidJavaScript)
 	mux.HandleFunc("GET /assets/plantuml-frame.html", s.plantUMLRenderer)
+	mux.HandleFunc("GET /assets/plantuml/{version}/{asset}", s.plantUMLAsset)
 	// Keep relative links inside the preview's internal path so ../ returns to site content.
 	mux.HandleFunc("/_aidrop/content/{project}/{artifact}/", s.publicArtifactContent)
 	mux.HandleFunc("/p/{project}/", s.publicProject)
@@ -86,6 +87,28 @@ func (s *server) plantUMLRenderer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write(page)
+}
+
+func (s *server) plantUMLAsset(w http.ResponseWriter, r *http.Request) {
+	if r.PathValue("version") != mdview.PlantUMLAssetVersion {
+		s.notFound(w, r)
+		return
+	}
+	asset, ok := mdview.PlantUMLAsset(r.PathValue("asset"))
+	if !ok {
+		s.notFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(asset)))
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = w.Write(asset)
 }
 
 func (s *server) notFound(w http.ResponseWriter, _ *http.Request) {

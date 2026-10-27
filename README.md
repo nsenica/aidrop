@@ -73,13 +73,12 @@ Agent -> AI_Drop: Publish
 The Mermaid renderer is bundled with AI Drop, so previews do not load diagram
 scripts from external services.
 
-PlantUML uses the official browser engine from the pinned
-`@plantuml/core@1.2026.9` package. The browser downloads its MIT-licensed
-renderer from unpkg only on pages containing a `plantuml` or `puml` fence;
-diagram source stays in the browser and is never sent to a rendering service.
+PlantUML uses the official, MIT-licensed browser engine from the pinned
+`@plantuml/core@1.2026.9` package. AIDrop serves its renderer assets locally,
+so PlantUML previews work without a third-party CDN or an internet connection.
+Diagram source stays in the browser and is never sent to a rendering service.
 The renderer runs in a sandboxed frame and blocks remote PlantUML includes.
-If the CDN or renderer is unavailable, the original fenced source remains
-visible.
+If rendering fails, the original fenced source remains visible.
 
 ## Security
 

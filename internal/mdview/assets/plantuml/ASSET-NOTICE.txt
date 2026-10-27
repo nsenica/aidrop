@@ -1,0 +1,10 @@
+PlantUML browser renderer assets
+
+Package: @plantuml/core 1.2026.9
+Source: https://www.npmjs.com/package/@plantuml/core
+Repository: https://github.com/plantuml/plantuml
+Package license: MIT (see LICENSE)
+
+plantuml.js, viz-global.js, themes.js, emoji.js, and openiconic.js are copied
+from the package without modification. The viz-global.js file retains its
+upstream Viz.js, Graphviz, and Expat license notice at the top of the file.
