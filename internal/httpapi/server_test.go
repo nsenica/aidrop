@@ -58,6 +58,61 @@ func TestMermaidRendererAssetIsServedFromSameOrigin(t *testing.T) {
 	}
 }
 
+func TestPlantUMLRendererFrameIsSandboxedAndCDNBound(t *testing.T) {
+	handler := newTestHandler(t, "secret-value")
+	response := performRequest(handler, http.MethodGet, "/assets/plantuml-frame.html", "", "", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("PlantUML frame status=%d, want %d", response.Code, http.StatusOK)
+	}
+	if got := response.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Errorf("PlantUML frame content type=%q, want HTML", got)
+	}
+	if got := response.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("PlantUML frame Cache-Control=%q, want no-store", got)
+	}
+	if got := response.Header().Get("X-Frame-Options"); got != "SAMEORIGIN" {
+		t.Errorf("PlantUML frame X-Frame-Options=%q, want SAMEORIGIN", got)
+	}
+	if got := response.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("PlantUML frame X-Content-Type-Options=%q, want nosniff", got)
+	}
+	csp := response.Header().Get("Content-Security-Policy")
+	for _, want := range []string{
+		"default-src 'none'",
+		"script-src 'unsafe-inline' 'wasm-unsafe-eval' https://unpkg.com/@plantuml/core@1.2026.9/",
+		"worker-src blob:",
+		"connect-src 'none'",
+		"sandbox allow-scripts",
+	} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("PlantUML frame CSP=%q, missing %q", csp, want)
+		}
+	}
+	for _, want := range []string{
+		"window.PLANTUML_STDLIB_BASE = \"https://unpkg.com/@plantuml/core@1.2026.9/\"",
+		"https://unpkg.com/@plantuml/core@1.2026.9/viz-global.js",
+		"https://unpkg.com/@plantuml/core@1.2026.9/plantuml.js",
+		`<div id="plantuml-output"></div>`,
+		`#plantuml-output svg { display: block; width: 100%; height: auto; margin: 0 auto; }`,
+		`document.getElementById("plantuml-output")`,
+		`renderToString(source.split(/\r\n|\r|\n/), svgSource =>`,
+		`/PlantUML version\b[\s\S]*Syntax Error\?/i`,
+		`/(?:-->>|-->|->>|->)\s*:/m`,
+		`{maxSvgSize:8192}`,
+		"postMessage",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("PlantUML frame does not contain %q", want)
+		}
+	}
+	if strings.Contains(response.Body.String(), "allow-same-origin") {
+		t.Error("PlantUML frame enables allow-same-origin")
+	}
+	if strings.Contains(response.Body.String(), "includeurl") {
+		t.Error("PlantUML frame exposes remote include support")
+	}
+}
+
 func TestManagementRoutesRequireBearerToken(t *testing.T) {
 	const secret = "configured-secret"
 	handler := newTestHandler(t, secret)
@@ -518,6 +573,58 @@ func TestMarkdownPublishRenderSourceAndUpdate(t *testing.T) {
 	source = performRequest(handler, http.MethodGet, path+"/source", token, "", nil)
 	if source.Code != http.StatusOK || !bytes.Equal(source.Body.Bytes(), updatedSource) {
 		t.Fatalf("updated source response status=%d body=%q", source.Code, source.Body.Bytes())
+	}
+}
+
+func TestMarkdownPlantUMLPublishUsesConditionalCDNFrame(t *testing.T) {
+	const token = "plantuml-integration-secret"
+	handler, _ := newTestService(t, token)
+	path := "/api/v1/projects/demo/artifacts/plantuml"
+	publicPath := "/p/demo/plantuml/"
+	original := []byte("# Architecture\n\n```plantuml\n@startuml\nAlice -> Bob: request\nBob --> Alice: response\n@enduml\n```\n\n```puml\nnot valid PlantUML\n```\n")
+
+	created := performRequest(handler, http.MethodPost, path, token, "text/markdown", original)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("PlantUML Markdown POST status=%d body=%s", created.Code, created.Body.String())
+	}
+	view := performRequest(handler, http.MethodGet, publicPath, "", "", nil)
+	if view.Code != http.StatusOK {
+		t.Fatalf("PlantUML Markdown view status=%d body=%s", view.Code, view.Body.String())
+	}
+	csp := view.Header().Get("Content-Security-Policy")
+	for _, want := range []string{
+		"default-src 'none'",
+		"frame-src 'self'",
+	} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("PlantUML Markdown CSP=%q, missing %q", csp, want)
+		}
+	}
+	if strings.Contains(csp, "https://unpkg.com") {
+		t.Error("PlantUML parent page CSP should keep CDN permissions inside the renderer frame")
+	}
+	for _, want := range []string{
+		`frame.src = "/assets/plantuml-frame.html?v=8"`,
+		`frame.setAttribute("sandbox", "allow-scripts")`,
+		`<code class="language-plantuml">`,
+		`<code class="language-puml">`,
+		"not valid PlantUML",
+		"View original Markdown source",
+	} {
+		if !strings.Contains(view.Body.String(), want) {
+			t.Errorf("PlantUML public page does not contain %q", want)
+		}
+	}
+	if strings.Contains(view.Body.String(), "plantuml-server") || strings.Contains(view.Body.String(), "www.plantuml.com/plantuml") {
+		t.Error("PlantUML page uses a remote rendering service")
+	}
+	encoded := base64.StdEncoding.EncodeToString(original)
+	if !strings.Contains(view.Body.String(), `value="`+encoded+`"`) {
+		t.Error("PlantUML public page does not contain exact source bytes")
+	}
+	source := performRequest(handler, http.MethodGet, path+"/source", token, "", nil)
+	if source.Code != http.StatusOK || !bytes.Equal(source.Body.Bytes(), original) {
+		t.Fatalf("PlantUML source response status=%d body=%q", source.Code, source.Body.Bytes())
 	}
 }
 

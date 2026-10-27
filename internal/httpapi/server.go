@@ -49,6 +49,7 @@ func NewHandler(cfg config.Config, repository *storage.Repository) http.Handler 
 	mux.Handle("/api/v1/", s.managementCORS(s.authenticate(http.StripPrefix("/api/v1", management))))
 	mux.Handle("/mcp", s.mcpCORS(s.authenticate(newMCPHTTPHandler(s))))
 	mux.HandleFunc("GET /assets/mermaid.tiny.min.js", s.mermaidJavaScript)
+	mux.HandleFunc("GET /assets/plantuml-frame.html", s.plantUMLRenderer)
 	mux.HandleFunc("/p/{project}/", s.publicProject)
 	mux.HandleFunc("/p/{project}/{artifact}/", s.publicArtifact)
 	mux.HandleFunc("/", s.home)
@@ -67,6 +68,22 @@ func (s *server) mermaidJavaScript(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(script)
+}
+
+func (s *server) plantUMLRenderer(w http.ResponseWriter, r *http.Request) {
+	page := mdview.PlantUMLRendererPage()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Security-Policy", mdview.PlantUMLRendererCSP())
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = w.Write(page)
 }
 
 func (s *server) notFound(w http.ResponseWriter, _ *http.Request) {
@@ -261,13 +278,17 @@ func (s *server) publicArtifact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if metadata.Format == storage.FormatMarkdown {
-			page, err := mdview.RenderPage(project, artifact, body)
+			page, hasPlantUML, err := mdview.RenderPage(project, artifact, body)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "render_failed", "could not render Markdown artifact")
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+			contentSecurityPolicy := "default-src 'none'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+			if hasPlantUML {
+				contentSecurityPolicy += "; frame-src 'self'"
+			}
+			w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 			w.WriteHeader(http.StatusOK)

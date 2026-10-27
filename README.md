@@ -11,7 +11,7 @@ bearer token.
 | Format | Preview |
 | --- | --- |
 | HTML | Sandboxed page with Home and project navigation |
-| Markdown | Sanitized document with selectable/copyable source and local Mermaid diagrams |
+| Markdown | Sanitized document with selectable/copyable source and browser-rendered Mermaid and PlantUML diagrams |
 | ZIP website | Validated static site with relative assets and nested pages |
 
 Use the REST API or the Streamable HTTP MCP endpoint. Both share the same
@@ -43,15 +43,30 @@ curl -fsS \
 The response includes a stable public URL for the new artifact.
 
 Markdown previews render Mermaid flowcharts, sequence diagrams, and class
-diagrams from fenced blocks. For example:
+diagrams from fenced blocks. PlantUML class and sequence diagrams are also
+supported. For example:
 
 ```mermaid
 flowchart LR
   Agent --> AI_Drop
 ```
 
+```plantuml
+@startuml
+Agent -> AI_Drop: Publish
+@enduml
+```
+
 The Mermaid renderer is bundled with AI Drop, so previews do not load diagram
 scripts from external services.
+
+PlantUML uses the official browser engine from the pinned
+`@plantuml/core@1.2026.9` package. The browser downloads its MIT-licensed
+renderer from unpkg only on pages containing a `plantuml` or `puml` fence;
+diagram source stays in the browser and is never sent to a rendering service.
+The renderer runs in a sandboxed frame and blocks remote PlantUML includes.
+If the CDN or renderer is unavailable, the original fenced source remains
+visible.
 
 ## Security
 

@@ -103,6 +103,30 @@ diagram text; malformed or unsupported diagrams remain readable as source.
 The vendored bundle's MIT license is in
 [`internal/mdview/assets/MERMAID-LICENSE.txt`](../internal/mdview/assets/MERMAID-LICENSE.txt).
 
+PlantUML class and sequence diagrams use `plantuml` or `puml` fenced blocks:
+
+````markdown
+```plantuml
+@startuml
+Alice -> Bob: Publish a document
+Bob --> Alice: Return the public URL
+@enduml
+```
+````
+
+PlantUML is rendered in the browser with the official TeaVM engine from the
+version-pinned MIT package `@plantuml/core@1.2026.9`. Its `plantuml.js` and
+`viz-global.js` files are downloaded from unpkg only when a page contains a
+PlantUML block; AI Drop does not ship those multi-megabyte assets and never
+sends diagram source to a remote rendering service. Rendering happens inside
+a sandboxed `allow-scripts` iframe with a restrictive policy that permits only
+the pinned package scripts, inline SVG rendering inside the isolated frame,
+and no network connections for diagram content. Remote `!includeurl` resources
+are therefore unavailable.
+If the CDN, parser, or renderer fails, the original PlantUML source remains
+visible in the Markdown preview. The source disclosure and authenticated
+source endpoint continue to preserve the exact uploaded Markdown bytes.
+
 Rendering sanitizes raw HTML and keeps dangerous links inert, so uploaded
 markup is displayed as content rather than executed or navigated as active
 content.

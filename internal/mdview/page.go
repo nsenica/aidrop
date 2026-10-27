@@ -15,6 +15,7 @@ type pageData struct {
 	RenderedHTML template.HTML
 	SourceBase64 string
 	HasMermaid   bool
+	HasPlantUML  bool
 }
 
 var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype html>
@@ -66,6 +67,11 @@ var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype 
     .prose .mermaid-diagram { max-width: 100%; margin: 1.35rem 0; overflow-x: auto; text-align: center; }
     .prose .mermaid-diagram svg { max-width: 100%; height: auto; }
     .prose .mermaid-fallback { margin: 1.1rem 0 -.9rem; color: #8a5a12; font-size: .88rem; }
+    .prose .plantuml-diagram { max-width: 100%; margin: 1.35rem 0; overflow: hidden; border: 1px solid #e1e7f0; border-radius: 12px; background: #fff; }
+    .prose .plantuml-diagram iframe { display: block; width: 100%; border: 0; background: #fff; }
+    .plantuml-renderer-pending { position: fixed !important; top: 0 !important; left: -10000px !important; width: min(920px, 100vw) !important; height: 600px !important; visibility: hidden !important; overflow: hidden !important; border: 0 !important; }
+    .plantuml-renderer-pending iframe { display: block; width: 100%; height: 100%; border: 0; }
+    .prose .plantuml-fallback { margin: 1.1rem 0 -.9rem; color: #8a5a12; font-size: .88rem; }
     .prose code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .88em; }
     .prose :not(pre) > code { padding: .15rem .35rem; border: 1px solid #e5eaf2; border-radius: 5px; background: #f4f6fa; color: #425477; }
     .prose hr { height: 1px; margin: 2rem 0; border: 0; background: #e6eaf1; }
@@ -186,6 +192,75 @@ var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype 
     }, { once: true });
   </script>
   {{end}}
+  {{if .HasPlantUML}}
+  <script>
+    (() => {
+      const pending = new Map();
+      const showFallback = pre => {
+        const notice = document.createElement("p");
+        notice.className = "plantuml-fallback";
+        notice.textContent = "PlantUML preview unavailable; source is shown below.";
+        pre.parentNode.insertBefore(notice, pre);
+      };
+      const fail = frame => {
+        const item = pending.get(frame.contentWindow);
+        if (!item) return;
+        clearTimeout(item.timeout);
+        pending.delete(frame.contentWindow);
+        item.wrapper.remove();
+        showFallback(item.pre);
+      };
+      window.addEventListener("message", event => {
+        const item = pending.get(event.source);
+        if (!item || !event.data) return;
+        if (event.data.type === "aidrop-plantuml-ready") {
+          event.source.postMessage({type:"aidrop-plantuml-render", source:item.source}, "*");
+          return;
+        }
+        if (event.data.type === "aidrop-plantuml-error") {
+          fail(item.frame);
+          return;
+        }
+        if (event.data.type !== "aidrop-plantuml-rendered") return;
+        const width = Number(event.data.width);
+        const height = Number(event.data.height);
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+          fail(item.frame);
+          return;
+        }
+        clearTimeout(item.timeout);
+        pending.delete(event.source);
+        const frameWidth = item.pre.getBoundingClientRect().width;
+        const diagramWidth = Math.min(frameWidth, Math.max(width, Math.min(400, frameWidth)));
+        const scale = diagramWidth / width;
+        item.wrapper.className = "plantuml-diagram";
+        item.frame.style.width = diagramWidth + "px";
+        item.frame.style.margin = "0 auto";
+        item.frame.style.height = Math.min(8192, Math.max(140, Math.ceil(height * scale))) + "px";
+        item.pre.remove();
+      });
+      document.querySelectorAll(".prose pre > code.language-plantuml, .prose pre > code.language-puml").forEach(code => {
+        const pre = code.parentElement;
+        const source = code.textContent || "";
+        if (source.length > 50000) {
+          showFallback(pre);
+          return;
+        }
+        const wrapper = document.createElement("div");
+        wrapper.className = "plantuml-renderer-pending";
+        const frame = document.createElement("iframe");
+        frame.setAttribute("sandbox", "allow-scripts");
+        frame.setAttribute("title", "PlantUML diagram");
+        frame.setAttribute("referrerpolicy", "no-referrer");
+        const timeout = window.setTimeout(() => fail(frame), 30000);
+        wrapper.append(frame);
+        pre.parentNode.insertBefore(wrapper, pre);
+        pending.set(frame.contentWindow, {frame, wrapper, pre, source, timeout});
+        frame.src = "/assets/plantuml-frame.html?v=8";
+      });
+    })();
+  </script>
+  {{end}}
 </body>
 </html>
 `))
@@ -193,22 +268,25 @@ var pageTemplate = template.Must(template.New("markdown-page").Parse(`<!doctype 
 // RenderPage turns Markdown into a service-owned page. Goldmark's safe HTML
 // renderer omits raw HTML and potentially dangerous link destinations by default.
 // The only trusted HTML passed to the template is output from that renderer.
-func RenderPage(project, artifact string, source []byte) ([]byte, error) {
+func RenderPage(project, artifact string, source []byte) ([]byte, bool, error) {
 	parser := goldmark.New(goldmark.WithExtensions(extension.GFM))
 	var rendered bytes.Buffer
 	if err := parser.Convert(source, &rendered); err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	hasMermaid := bytes.Contains(rendered.Bytes(), []byte(`<code class="language-mermaid">`))
+	hasPlantUML := bytes.Contains(rendered.Bytes(), []byte(`<code class="language-plantuml">`)) || bytes.Contains(rendered.Bytes(), []byte(`<code class="language-puml">`))
 	data := pageData{
 		Project:      project,
 		Artifact:     artifact,
 		RenderedHTML: template.HTML(rendered.String()),
 		SourceBase64: base64.StdEncoding.EncodeToString(source),
-		HasMermaid:   bytes.Contains(rendered.Bytes(), []byte(`<code class="language-mermaid">`)),
+		HasMermaid:   hasMermaid,
+		HasPlantUML:  hasPlantUML,
 	}
 	var page bytes.Buffer
 	if err := pageTemplate.Execute(&page, data); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return page.Bytes(), nil
+	return page.Bytes(), hasPlantUML, nil
 }
