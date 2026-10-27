@@ -288,11 +288,11 @@ preflights allow MCP `GET` and `POST` with `Authorization`, `Content-Type`, and
 
 ## Container deployment
 
-Set the management token in the shell and start the single service with its named persistent volume:
+After a GitHub release is published and its GHCR package is public, start the prebuilt image with its named persistent volume:
 
 ```sh
-export AIDROP_BEARER_TOKEN='choose-a-secret-value'
-docker compose up --build -d
+export AIDROP_BEARER_TOKEN="$(openssl rand -hex 32)"
+docker compose --file compose.ghcr.yaml up -d
 ```
 
 Compose publishes the service on host loopback port `6420` by default. Set
@@ -301,6 +301,41 @@ host interface. The container listens on `0.0.0.0:6420` and stores artifacts
 in the `aidrop-data` volume. Keep this volume attached to one service writer;
 do not run multiple replicas against the same data directory. The image runs
 as UID/GID `10001`; a new named volume inherits the writable `/data` ownership.
+
+The Compose file defaults to `latest`. Pin a specific release by setting
+`AIDROP_VERSION=1.2.3` (without the `v` prefix). Pull again after a release to
+update a running installation:
+
+```sh
+AIDROP_VERSION=1.2.3 docker compose --file compose.ghcr.yaml pull
+AIDROP_VERSION=1.2.3 docker compose --file compose.ghcr.yaml up -d
+```
+
+### Release and package access
+
+The release workflow publishes a multi-platform image to
+`ghcr.io/nsenica/aidrop`. Release tag `v1.2.3` produces image tags `1.2.3`,
+`1.2`, `1`, and `latest` for stable releases.
+
+To publish an image, create a GitHub Release from a semantic version tag such
+as `v1.2.3`. The release workflow runs `go test ./...` and `go test -race
+./...` before building `linux/amd64` and `linux/arm64` images and pushing the
+version tags. No registry secret is needed; the workflow uses its repository-
+scoped `GITHUB_TOKEN` with package write permission.
+
+The first published package may be private by default. After it appears under
+the repository’s Packages, set its visibility to Public in the package
+settings so users can pull without logging in. GitHub does not allow changing
+a public package back to private.
+
+### Build from source
+
+For development, build from this checkout instead of pulling an image:
+
+```sh
+export AIDROP_BEARER_TOKEN='choose-a-secret-value'
+docker compose up --build -d
+```
 
 Place any external reverse proxy in front of AI Drop and terminate TLS there.
 The service does not configure TLS, DNS, or proxy rules. Run

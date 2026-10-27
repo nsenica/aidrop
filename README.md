@@ -19,16 +19,29 @@ storage and project/artifact operations.
 
 ## Quick start
 
-Requires Docker Compose. From the repository directory:
+Requires Docker Compose and a published [GitHub release image](https://github.com/nsenica/aidrop/releases). From the repository directory:
 
 ```sh
 export AIDROP_BEARER_TOKEN="$(openssl rand -hex 32)"
-docker compose up --build -d
+docker compose --file compose.ghcr.yaml up -d
 ```
 
 Open [http://127.0.0.1:6420](http://127.0.0.1:6420). Compose stores published
 artifacts in the persistent `aidrop-data` volume and binds to host loopback by
 default.
+
+The image defaults to `ghcr.io/nsenica/aidrop:latest`. To pin a release, set
+`AIDROP_VERSION` to its version without the `v` prefix, such as `1.2.3`. See
+the [container deployment guide](docs/REFERENCE.md#container-deployment) for
+release and package visibility details.
+
+### Build from source
+
+To build the image locally instead, run:
+
+```sh
+docker compose up --build -d
+```
 
 Publish a Markdown note:
 

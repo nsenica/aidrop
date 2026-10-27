@@ -1,0 +1,16 @@
+services:
+  aidrop:
+    image: ghcr.io/nsenica/aidrop:${AIDROP_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      AIDROP_BEARER_TOKEN: ${AIDROP_BEARER_TOKEN:?Set AIDROP_BEARER_TOKEN in the environment}
+      AIDROP_ALLOWED_ORIGINS: ${AIDROP_ALLOWED_ORIGINS:-}
+      AIDROP_DATA_DIR: /data
+      AIDROP_LISTEN_ADDR: 0.0.0.0:6420
+    ports:
+      - "${AIDROP_BIND_ADDRESS:-127.0.0.1}:${AIDROP_PORT:-6420}:6420"
+    volumes:
+      - aidrop-data:/data
+
+volumes:
+  aidrop-data:

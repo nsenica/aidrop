@@ -1,8 +1,10 @@
-FROM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 
 WORKDIR /src
+ARG TARGETOS
+ARG TARGETARCH
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/aidrop ./cmd/aidrop
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/aidrop ./cmd/aidrop
 
 FROM alpine:3.22
 
