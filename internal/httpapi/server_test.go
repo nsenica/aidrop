@@ -234,7 +234,7 @@ func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 	if strings.Contains(viewed.Body.String(), token) {
 		t.Error("viewer page leaked the management bearer token")
 	}
-	for _, want := range []string{`href="/">Home</a>`, `href="/p/demo/">demo</a>`, `src="/p/demo/homepage/?_aidrop_content=1"`, `sandbox="allow-scripts"`} {
+	for _, want := range []string{`href="/">Home</a>`, `href="/p/demo/">demo</a>`, `src="/_aidrop/content/demo/homepage/"`, `sandbox="allow-scripts"`} {
 		if !strings.Contains(viewed.Body.String(), want) {
 			t.Errorf("public viewer does not contain %q: %s", want, viewed.Body.String())
 		}
@@ -248,6 +248,15 @@ func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 	}
 	if got := rawViewed.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" || strings.Contains(got, "allow-same-origin") {
 		t.Errorf("framed HTML CSP = %q, want sandbox allow-scripts without same-origin", got)
+	}
+	contentPath := "/_aidrop/content/demo/homepage/"
+	contentView := performRequest(handler, http.MethodGet, contentPath, "", "", nil)
+	if contentView.Code != http.StatusOK || !bytes.Equal(contentView.Body.Bytes(), original) {
+		t.Fatalf("internal HTML content path status=%d body=%q; want original HTML", contentView.Code, contentView.Body.Bytes())
+	}
+	assertPublicArtifactHeaders(t, contentView)
+	if got := contentView.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" || strings.Contains(got, "allow-same-origin") {
+		t.Errorf("internal HTML content CSP = %q, want sandbox allow-scripts without same-origin", got)
 	}
 	if !bytes.Contains(rawViewed.Body.Bytes(), []byte(`href="styles/site.css"`)) {
 		t.Errorf("relative stylesheet reference was not preserved in framed HTML")
@@ -287,7 +296,7 @@ func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 		t.Errorf("update changed stable identity: created=%+v updated=%+v", createdMetadata, updatedMetadata)
 	}
 	viewed = performRequest(handler, http.MethodGet, publicPath, "", "", nil)
-	if viewed.Code != http.StatusOK || !strings.Contains(viewed.Body.String(), `src="/p/demo/homepage/?_aidrop_content=1"`) {
+	if viewed.Code != http.StatusOK || !strings.Contains(viewed.Body.String(), `src="/_aidrop/content/demo/homepage/"`) {
 		t.Fatalf("updated public viewer status=%d body=%q", viewed.Code, viewed.Body.Bytes())
 	}
 	rawViewed = performRequest(handler, http.MethodGet, publicPath+"?_aidrop_content=1", "", "", nil)
@@ -415,7 +424,7 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 	}
 
 	root := performRequest(handler, http.MethodGet, publicPath, "", "", nil)
-	if root.Code != http.StatusOK || !strings.Contains(root.Body.String(), `src="/p/demo/site/?_aidrop_content=1"`) || !strings.Contains(root.Body.String(), `href="/p/demo/">demo</a>`) {
+	if root.Code != http.StatusOK || !strings.Contains(root.Body.String(), `src="/_aidrop/content/demo/site/"`) || !strings.Contains(root.Body.String(), `href="/p/demo/">demo</a>`) {
 		t.Fatalf("public viewer status=%d body=%q", root.Code, root.Body.Bytes())
 	}
 	if got := root.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-src 'self'") || !strings.Contains(got, "default-src 'none'") {
@@ -427,6 +436,29 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 	}
 	if got := framedRoot.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" || strings.Contains(got, "allow-same-origin") {
 		t.Errorf("framed ZIP root CSP = %q, want sandbox allow-scripts without same-origin", got)
+	}
+	contentPath := "/_aidrop/content/demo/site/"
+	contentRoot := performRequest(handler, http.MethodGet, contentPath, "", "", nil)
+	if contentRoot.Code != http.StatusOK || !bytes.Equal(contentRoot.Body.Bytes(), indexHTML) {
+		t.Fatalf("internal ZIP content root status=%d body=%q; want entry point", contentRoot.Code, contentRoot.Body.Bytes())
+	}
+	assertPublicArtifactHeaders(t, contentRoot)
+	if got := contentRoot.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" || strings.Contains(got, "allow-same-origin") {
+		t.Errorf("internal ZIP root CSP = %q, want sandbox allow-scripts without same-origin", got)
+	}
+	contentHead := performRequest(handler, http.MethodHead, contentPath, "", "", nil)
+	if contentHead.Code != http.StatusOK || contentHead.Body.Len() != 0 {
+		t.Errorf("HEAD internal ZIP content root status=%d body length=%d, want 200 with no body", contentHead.Code, contentHead.Body.Len())
+	}
+	assertPublicArtifactHeaders(t, contentHead)
+	contentNested := performRequest(handler, http.MethodGet, contentPath+"nested/", "", "", nil)
+	if contentNested.Code != http.StatusOK || string(contentNested.Body.Bytes()) != "<h1>Nested page</h1>" {
+		t.Errorf("internal nested ZIP page status=%d body=%q", contentNested.Code, contentNested.Body.Bytes())
+	}
+	assertPublicArtifactHeaders(t, contentNested)
+	traversal := performRequest(handler, http.MethodGet, contentPath+"nested/../../../../etc/passwd", "", "", nil)
+	if traversal.Code == http.StatusOK || strings.Contains(traversal.Body.String(), "root:x:0:0:") {
+		t.Errorf("excessive parent path escaped the ZIP content namespace: status=%d", traversal.Code)
 	}
 	assertPublicArtifactHeaders(t, framedRoot)
 	headRoot := performRequest(handler, http.MethodHead, publicPath, "", "", nil)
@@ -511,7 +543,7 @@ func TestInvalidZIPDoesNotPublishOrReplaceArtifact(t *testing.T) {
 	failedUpdate := performRequest(handler, http.MethodPut, path, token, "application/zip", []byte("invalid replacement"))
 	assertAPIError(t, failedUpdate, http.StatusBadRequest, "invalid_archive")
 	root := performRequest(handler, http.MethodGet, "/p/demo/site/", "", "", nil)
-	if root.Code != http.StatusOK || !strings.Contains(root.Body.String(), `src="/p/demo/site/?_aidrop_content=1"`) {
+	if root.Code != http.StatusOK || !strings.Contains(root.Body.String(), `src="/_aidrop/content/demo/site/"`) {
 		t.Fatalf("prior site viewer after rejected update status=%d body=%q", root.Code, root.Body.Bytes())
 	}
 	framedRoot := performRequest(handler, http.MethodGet, "/p/demo/site/?_aidrop_content=1", "", "", nil)

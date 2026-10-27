@@ -170,7 +170,10 @@ private-key filenames may not match these patterns.
 
 HTML files served from a ZIP use `Content-Security-Policy: sandbox
 allow-scripts` without `allow-same-origin`; assets receive a matching MIME type
-and `X-Content-Type-Options: nosniff`.
+and `X-Content-Type-Options: nosniff`. Relative links remain within the
+published site, including links from nested pages back to its root. A leading
+`/` still refers to the service origin root; use relative URLs for ZIP-internal
+links.
 
 ## Project discovery and deletion
 

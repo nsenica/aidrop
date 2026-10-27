@@ -6,7 +6,7 @@ import (
 )
 
 func TestArtifactViewerEscapesLabelsAndFramesPublishedContent(t *testing.T) {
-	page, err := renderArtifactViewer("demo&team", "report<draft>", "/p/demo/report/?_aidrop_content=1")
+	page, err := renderArtifactViewer("demo&team", "report<draft>", "/_aidrop/content/demo/report/")
 	if err != nil {
 		t.Fatalf("renderArtifactViewer: %v", err)
 	}
@@ -15,7 +15,7 @@ func TestArtifactViewerEscapesLabelsAndFramesPublishedContent(t *testing.T) {
 		"href=\"/\">Home</a>",
 		"href=\"/p/demo&amp;team/\">demo&amp;team</a>",
 		"report&lt;draft&gt;",
-		"src=\"/p/demo/report/?_aidrop_content=1\"",
+		"src=\"/_aidrop/content/demo/report/\"",
 		"sandbox=\"allow-scripts\"",
 	} {
 		if !strings.Contains(contents, want) {

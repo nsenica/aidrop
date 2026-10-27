@@ -366,7 +366,7 @@ func TestCrossInterfaceReleaseWorkflowAcrossFormats(t *testing.T) {
 	if zipUpdated.PublicURL != zipCreated.PublicURL || !zipUpdated.CreatedAt.Equal(zipCreated.CreatedAt) {
 		t.Errorf("ZIP update changed stable identity: before=%+v after=%+v", zipCreated, zipUpdated)
 	}
-	if viewed := performRequest(handler, http.MethodGet, zipUpdated.PublicURL, "", "", nil); viewed.Code != http.StatusOK || !strings.Contains(viewed.Body.String(), `src="/p/release-check/site/?_aidrop_content=1"`) {
+	if viewed := performRequest(handler, http.MethodGet, zipUpdated.PublicURL, "", "", nil); viewed.Code != http.StatusOK || !strings.Contains(viewed.Body.String(), `src="/_aidrop/content/release-check/site/"`) {
 		t.Errorf("updated ZIP viewer status=%d body=%q", viewed.Code, viewed.Body.String())
 	}
 	if viewed := performRequest(handler, http.MethodGet, zipUpdated.PublicURL+"?_aidrop_content=1", "", "", nil); viewed.Code != http.StatusOK || !strings.Contains(viewed.Body.String(), "ZIP site v2") {

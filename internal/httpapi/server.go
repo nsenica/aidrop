@@ -50,6 +50,8 @@ func NewHandler(cfg config.Config, repository *storage.Repository) http.Handler 
 	mux.Handle("/mcp", s.mcpCORS(s.authenticate(newMCPHTTPHandler(s))))
 	mux.HandleFunc("GET /assets/mermaid.tiny.min.js", s.mermaidJavaScript)
 	mux.HandleFunc("GET /assets/plantuml-frame.html", s.plantUMLRenderer)
+	// Keep relative links inside the preview's internal path so ../ returns to site content.
+	mux.HandleFunc("/_aidrop/content/{project}/{artifact}/", s.publicArtifactContent)
 	mux.HandleFunc("/p/{project}/", s.publicProject)
 	mux.HandleFunc("/p/{project}/{artifact}/", s.publicArtifact)
 	mux.HandleFunc("/", s.home)
@@ -303,7 +305,7 @@ func (s *server) publicArtifact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.URL.Query().Get("_aidrop_content") != "1" {
-			page, err := renderArtifactViewer(project, artifact, basePath+"?_aidrop_content=1")
+			page, err := renderArtifactViewer(project, artifact, publicArtifactContentPath(project, artifact))
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "render_failed", "could not render artifact viewer")
 				return
@@ -333,6 +335,72 @@ func (s *server) publicArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	servePublicSiteFile(w, sitePath, contents, r.Method == http.MethodHead)
+}
+
+func (s *server) publicArtifactContent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		methodNotAllowed(w, "GET, HEAD")
+		return
+	}
+	project := r.PathValue("project")
+	artifact := r.PathValue("artifact")
+	if err := storage.ValidateSlug(project); err != nil {
+		writeStorageError(w, err)
+		return
+	}
+	if err := storage.ValidateSlug(artifact); err != nil {
+		writeStorageError(w, err)
+		return
+	}
+	basePath := publicArtifactContentPath(project, artifact)
+	if !strings.HasPrefix(r.URL.Path, basePath) {
+		s.notFound(w, r)
+		return
+	}
+	metadata, err := s.repository.GetMetadata(project, artifact)
+	if err != nil {
+		writeStorageError(w, err)
+		return
+	}
+	if metadata.Format != storage.FormatHTML && metadata.Format != storage.FormatZIP {
+		s.notFound(w, r)
+		return
+	}
+	sitePath := strings.TrimPrefix(r.URL.Path, basePath)
+	if sitePath == "" {
+		_, contents, err := s.repository.GetPublicRoot(project, artifact)
+		if err != nil {
+			writeStorageError(w, err)
+			return
+		}
+		entryPoint := metadata.EntryPoint
+		if metadata.Format == storage.FormatHTML {
+			entryPoint = "index.html"
+		}
+		servePublicSiteFile(w, entryPoint, contents, r.Method == http.MethodHead)
+		return
+	}
+	if metadata.Format != storage.FormatZIP {
+		s.notFound(w, r)
+		return
+	}
+	if strings.HasSuffix(sitePath, "/") {
+		sitePath = strings.TrimSuffix(sitePath, "/") + "/index.html"
+	}
+	contents, err := s.repository.GetSiteFile(project, artifact, sitePath)
+	if err != nil {
+		if errors.Is(err, storage.ErrInvalidSitePath) {
+			s.notFound(w, r)
+			return
+		}
+		writeStorageError(w, err)
+		return
+	}
+	servePublicSiteFile(w, sitePath, contents, r.Method == http.MethodHead)
+}
+
+func publicArtifactContentPath(project, artifact string) string {
+	return "/_aidrop/content/" + project + "/" + artifact + "/"
 }
 
 func readArtifactBody(w http.ResponseWriter, r *http.Request, project, artifact string) (storage.NewArtifact, bool) {
