@@ -218,6 +218,9 @@ func newTestService(t *testing.T, token string) (http.Handler, *storage.Reposito
 
 func assertPublicArtifactHeaders(t *testing.T, response *httptest.ResponseRecorder) {
 	t.Helper()
+	if got := response.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control=%q, want no-store", got)
+	}
 	if got := response.Header().Get("X-Robots-Tag"); got != "noindex, nofollow" {
 		t.Errorf("X-Robots-Tag=%q, want noindex, nofollow", got)
 	}
@@ -984,6 +987,39 @@ func TestPublicCatalogPagesListProjectsArtifactsAndEmptyStates(t *testing.T) {
 	missing := performRequest(handler, http.MethodGet, "/p/missing/", "", "", nil)
 	if missing.Code != http.StatusNotFound || !strings.Contains(missing.Body.String(), "This project was not found") {
 		t.Errorf("missing project page status=%d body=%s", missing.Code, missing.Body.String())
+	}
+}
+
+func TestNoStoreIsLimitedToPublicArtifactResponses(t *testing.T) {
+	const token = "cache-policy-secret"
+	handler, _ := newTestService(t, token)
+	created := performRequest(handler, http.MethodPost, "/api/v1/projects/demo/artifacts/homepage", token, "text/html", []byte("<h1>Home</h1>"))
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create artifact status=%d body=%s", created.Code, created.Body.String())
+	}
+
+	public := performRequest(handler, http.MethodGet, "/p/demo/homepage/", "", "", nil)
+	if public.Code != http.StatusOK || public.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("public artifact response status=%d Cache-Control=%q, want 200 and no-store", public.Code, public.Header().Get("Cache-Control"))
+	}
+	for _, request := range []struct {
+		name  string
+		path  string
+		token string
+	}{
+		{name: "management API", path: "/api/v1/projects/demo/artifacts/homepage", token: token},
+		{name: "home catalog", path: "/"},
+		{name: "project catalog", path: "/p/demo/"},
+	} {
+		t.Run(request.name, func(t *testing.T) {
+			response := performRequest(handler, http.MethodGet, request.path, request.token, "", nil)
+			if response.Code != http.StatusOK {
+				t.Fatalf("response status=%d body=%s, want %d", response.Code, response.Body.String(), http.StatusOK)
+			}
+			if got := response.Header().Get("Cache-Control"); got == "no-store" {
+				t.Errorf("unrelated response Cache-Control=%q, must not receive public artifact policy", got)
+			}
+		})
 	}
 }
 

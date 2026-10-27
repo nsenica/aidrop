@@ -44,10 +44,12 @@ The preview includes navigation back to the project and home pages, while the
 uploaded document runs inside a sandboxed frame. The frame response uses
 `Content-Security-Policy: sandbox allow-scripts` without `allow-same-origin`;
 the authenticated source endpoint continues to return the exact uploaded bytes.
-Public artifact previews and files served from ZIP sites also send
-`X-Robots-Tag: noindex, nofollow` and `Referrer-Policy: no-referrer`. These
-headers discourage indexing and referrer disclosure; artifact URLs remain
-public and the headers do not provide access control.
+Public artifact previews and files served from ZIP sites send
+`Cache-Control: no-store`, `X-Robots-Tag: noindex, nofollow`, and
+`Referrer-Policy: no-referrer` on successful GET and HEAD responses. The cache
+policy helps avoid stale previews after updates. The other headers discourage
+indexing and referrer disclosure; artifact URLs remain public and the headers
+do not provide access control.
 
 Errors use a JSON object with `code` and `message` fields. Duplicate POSTs
 return `409 conflict`; a missing PUT, GET, or DELETE returns `404 not_found`.

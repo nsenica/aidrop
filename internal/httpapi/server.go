@@ -526,6 +526,7 @@ func serveSiteFileHeadAware(w http.ResponseWriter, sitePath string, contents []b
 }
 
 func setPublicArtifactHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 }
