@@ -484,6 +484,7 @@ func serveSiteFile(w http.ResponseWriter, sitePath string, contents []byte) {
 
 func servePublicSiteFile(w http.ResponseWriter, sitePath string, contents []byte, head bool) {
 	setPublicArtifactHeaders(w)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	serveSiteFileHeadAware(w, sitePath, contents, head)
 }
 

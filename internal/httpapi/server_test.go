@@ -193,6 +193,16 @@ func assertPublicArtifactHeaders(t *testing.T, response *httptest.ResponseRecord
 	}
 }
 
+func assertPublicArtifactCORSHeaders(t *testing.T, response *httptest.ResponseRecorder) {
+	t.Helper()
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("Access-Control-Allow-Origin=%q, want *", got)
+	}
+	if got := response.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Errorf("Access-Control-Allow-Credentials=%q, want unset", got)
+	}
+}
+
 func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 	const token = "integration-secret"
 	handler, _ := newTestService(t, token)
@@ -217,6 +227,9 @@ func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 		t.Fatalf("public viewer status=%d body=%q; want %d", viewed.Code, viewed.Body.Bytes(), http.StatusOK)
 	}
 	assertPublicArtifactHeaders(t, viewed)
+	if got := viewed.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("viewer Access-Control-Allow-Origin=%q, want unset", got)
+	}
 	head := performRequest(handler, http.MethodHead, publicPath, "", "", nil)
 	if head.Code != http.StatusOK || head.Body.Len() != 0 {
 		t.Errorf("HEAD public HTML preview status=%d body length=%d, want 200 with no body", head.Code, head.Body.Len())
@@ -246,6 +259,7 @@ func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 	if rawViewed.Code != http.StatusOK || !bytes.Equal(rawViewed.Body.Bytes(), original) {
 		t.Fatalf("framed HTML view status=%d body=%q; want original HTML", rawViewed.Code, rawViewed.Body.Bytes())
 	}
+	assertPublicArtifactCORSHeaders(t, rawViewed)
 	if got := rawViewed.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" || strings.Contains(got, "allow-same-origin") {
 		t.Errorf("framed HTML CSP = %q, want sandbox allow-scripts without same-origin", got)
 	}
@@ -255,6 +269,7 @@ func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 		t.Fatalf("internal HTML content path status=%d body=%q; want original HTML", contentView.Code, contentView.Body.Bytes())
 	}
 	assertPublicArtifactHeaders(t, contentView)
+	assertPublicArtifactCORSHeaders(t, contentView)
 	if got := contentView.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" || strings.Contains(got, "allow-same-origin") {
 		t.Errorf("internal HTML content CSP = %q, want sandbox allow-scripts without same-origin", got)
 	}
@@ -451,6 +466,7 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 		t.Errorf("HEAD internal ZIP content root status=%d body length=%d, want 200 with no body", contentHead.Code, contentHead.Body.Len())
 	}
 	assertPublicArtifactHeaders(t, contentHead)
+	assertPublicArtifactCORSHeaders(t, contentHead)
 	contentNested := performRequest(handler, http.MethodGet, contentPath+"nested/", "", "", nil)
 	if contentNested.Code != http.StatusOK || string(contentNested.Body.Bytes()) != "<h1>Nested page</h1>" {
 		t.Errorf("internal nested ZIP page status=%d body=%q", contentNested.Code, contentNested.Body.Bytes())
@@ -494,7 +510,13 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 			t.Errorf("GET %s X-Content-Type-Options=%q, want nosniff", asset.path, got)
 		}
 		assertPublicArtifactHeaders(t, response)
+		assertPublicArtifactCORSHeaders(t, response)
 	}
+	contentScript := performRequest(handler, http.MethodGet, contentPath+"js/app.js", "", "", nil)
+	if contentScript.Code != http.StatusOK || !bytes.Equal(contentScript.Body.Bytes(), []byte("console.log('site')")) {
+		t.Fatalf("internal ZIP script status=%d body=%q", contentScript.Code, contentScript.Body.Bytes())
+	}
+	assertPublicArtifactCORSHeaders(t, contentScript)
 	nested := performRequest(handler, http.MethodGet, publicPath+"nested/", "", "", nil)
 	if nested.Code != http.StatusOK || string(nested.Body.Bytes()) != "<h1>Nested page</h1>" {
 		t.Errorf("nested directory status=%d body=%q", nested.Code, nested.Body.Bytes())
@@ -503,6 +525,7 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 		t.Errorf("nested HTML CSP=%q, want sandbox allow-scripts", got)
 	}
 	assertPublicArtifactHeaders(t, nested)
+	assertPublicArtifactCORSHeaders(t, nested)
 
 	source := performRequest(handler, http.MethodGet, path+"/source", token, "", nil)
 	if source.Code != http.StatusOK || !bytes.Equal(source.Body.Bytes(), archive) {

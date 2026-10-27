@@ -56,6 +56,9 @@ func TestManagementCORSAllowsConfiguredProxyOrigin(t *testing.T) {
 	if got := createResponse.Header().Get("Access-Control-Allow-Origin"); got != "https://aidrop.example" {
 		t.Errorf("actual request allow origin=%q", got)
 	}
+	if got := createResponse.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Errorf("REST Access-Control-Allow-Credentials=%q, want unset", got)
+	}
 
 	unauthorized := httptest.NewRequest(http.MethodGet, "http://aidrop-internal/api/v1/projects", nil)
 	unauthorized.Header.Set("Origin", "https://aidrop.example")
@@ -95,6 +98,9 @@ func TestMCPCORSAllowsConfiguredProxyOriginPreflight(t *testing.T) {
 	}
 	if got := response.Header().Get("Access-Control-Allow-Headers"); got != mcpCORS.headers {
 		t.Errorf("allow headers=%q", got)
+	}
+	if got := response.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Errorf("MCP Access-Control-Allow-Credentials=%q, want unset", got)
 	}
 }
 
