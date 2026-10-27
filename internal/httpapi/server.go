@@ -252,8 +252,8 @@ func (s *server) siteFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) publicArtifact(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w, "GET")
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		methodNotAllowed(w, "GET, HEAD")
 		return
 	}
 	project := r.PathValue("project")
@@ -283,6 +283,7 @@ func (s *server) publicArtifact(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "render_failed", "could not render Markdown artifact")
 				return
 			}
+			setPublicArtifactHeaders(w)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			contentSecurityPolicy := "default-src 'none'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 			if hasPlantUML {
@@ -292,7 +293,9 @@ func (s *server) publicArtifact(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(page)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write(page)
+			}
 			return
 		}
 		if metadata.Format != storage.FormatHTML && metadata.Format != storage.FormatZIP {
@@ -305,14 +308,15 @@ func (s *server) publicArtifact(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "render_failed", "could not render artifact viewer")
 				return
 			}
-			writeArtifactViewer(w, page)
+			setPublicArtifactHeaders(w)
+			writeArtifactViewer(w, page, r.Method == http.MethodHead)
 			return
 		}
 		entryPoint := metadata.EntryPoint
 		if metadata.Format == storage.FormatHTML {
 			entryPoint = "index.html"
 		}
-		serveSiteFile(w, entryPoint, body)
+		servePublicSiteFile(w, entryPoint, body, r.Method == http.MethodHead)
 		return
 	}
 	sitePath := strings.TrimPrefix(r.URL.Path, basePath)
@@ -328,7 +332,7 @@ func (s *server) publicArtifact(w http.ResponseWriter, r *http.Request) {
 		writeStorageError(w, err)
 		return
 	}
-	serveSiteFile(w, sitePath, contents)
+	servePublicSiteFile(w, sitePath, contents, r.Method == http.MethodHead)
 }
 
 func readArtifactBody(w http.ResponseWriter, r *http.Request, project, artifact string) (storage.NewArtifact, bool) {
@@ -407,6 +411,15 @@ func writePayloadTooLarge(w http.ResponseWriter, label string) {
 }
 
 func serveSiteFile(w http.ResponseWriter, sitePath string, contents []byte) {
+	serveSiteFileHeadAware(w, sitePath, contents, false)
+}
+
+func servePublicSiteFile(w http.ResponseWriter, sitePath string, contents []byte, head bool) {
+	setPublicArtifactHeaders(w)
+	serveSiteFileHeadAware(w, sitePath, contents, head)
+}
+
+func serveSiteFileHeadAware(w http.ResponseWriter, sitePath string, contents []byte, head bool) {
 	contentType := contentTypeForSitePath(sitePath)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -415,7 +428,14 @@ func serveSiteFile(w http.ResponseWriter, sitePath string, contents []byte) {
 	}
 	w.Header().Set("Content-Length", strconv.Itoa(len(contents)))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(contents)
+	if !head {
+		_, _ = w.Write(contents)
+	}
+}
+
+func setPublicArtifactHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 }
 
 func contentTypeForSitePath(sitePath string) string {

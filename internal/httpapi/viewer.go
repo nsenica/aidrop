@@ -76,11 +76,13 @@ func renderArtifactViewer(project, artifact, contentURL string) ([]byte, error) 
 	return page.Bytes(), nil
 }
 
-func writeArtifactViewer(w http.ResponseWriter, page []byte) {
+func writeArtifactViewer(w http.ResponseWriter, page []byte, head bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Length", strconv.Itoa(len(page)))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(page)
+	if !head {
+		_, _ = w.Write(page)
+	}
 }

@@ -182,6 +182,16 @@ func newTestService(t *testing.T, token string) (http.Handler, *storage.Reposito
 	return NewHandler(config.Config{BearerToken: token}, repository), repository
 }
 
+func assertPublicArtifactHeaders(t *testing.T, response *httptest.ResponseRecorder) {
+	t.Helper()
+	if got := response.Header().Get("X-Robots-Tag"); got != "noindex, nofollow" {
+		t.Errorf("X-Robots-Tag=%q, want noindex, nofollow", got)
+	}
+	if got := response.Header().Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("Referrer-Policy=%q, want no-referrer", got)
+	}
+}
+
 func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 	const token = "integration-secret"
 	handler, _ := newTestService(t, token)
@@ -205,6 +215,12 @@ func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 	if viewed.Code != http.StatusOK {
 		t.Fatalf("public viewer status=%d body=%q; want %d", viewed.Code, viewed.Body.Bytes(), http.StatusOK)
 	}
+	assertPublicArtifactHeaders(t, viewed)
+	head := performRequest(handler, http.MethodHead, publicPath, "", "", nil)
+	if head.Code != http.StatusOK || head.Body.Len() != 0 {
+		t.Errorf("HEAD public HTML preview status=%d body length=%d, want 200 with no body", head.Code, head.Body.Len())
+	}
+	assertPublicArtifactHeaders(t, head)
 	if got := viewed.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 		t.Errorf("public Content-Type = %q, want text/html", got)
 	}
@@ -411,6 +427,17 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 	if got := framedRoot.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" || strings.Contains(got, "allow-same-origin") {
 		t.Errorf("framed ZIP root CSP = %q, want sandbox allow-scripts without same-origin", got)
 	}
+	assertPublicArtifactHeaders(t, framedRoot)
+	headRoot := performRequest(handler, http.MethodHead, publicPath, "", "", nil)
+	if headRoot.Code != http.StatusOK || headRoot.Body.Len() != 0 {
+		t.Errorf("HEAD public ZIP preview status=%d body length=%d, want 200 with no body", headRoot.Code, headRoot.Body.Len())
+	}
+	assertPublicArtifactHeaders(t, headRoot)
+	headNested := performRequest(handler, http.MethodHead, publicPath+"nested/", "", "", nil)
+	if headNested.Code != http.StatusOK || headNested.Body.Len() != 0 {
+		t.Errorf("HEAD nested ZIP page status=%d body length=%d, want 200 with no body", headNested.Code, headNested.Body.Len())
+	}
+	assertPublicArtifactHeaders(t, headNested)
 	assetCases := []struct {
 		path        string
 		contentType string
@@ -433,6 +460,7 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 		if got := response.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 			t.Errorf("GET %s X-Content-Type-Options=%q, want nosniff", asset.path, got)
 		}
+		assertPublicArtifactHeaders(t, response)
 	}
 	nested := performRequest(handler, http.MethodGet, publicPath+"nested/", "", "", nil)
 	if nested.Code != http.StatusOK || string(nested.Body.Bytes()) != "<h1>Nested page</h1>" {
@@ -441,6 +469,7 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 	if got := nested.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" {
 		t.Errorf("nested HTML CSP=%q, want sandbox allow-scripts", got)
 	}
+	assertPublicArtifactHeaders(t, nested)
 
 	source := performRequest(handler, http.MethodGet, path+"/source", token, "", nil)
 	if source.Code != http.StatusOK || !bytes.Equal(source.Body.Bytes(), archive) {
@@ -517,6 +546,12 @@ func TestMarkdownPublishRenderSourceAndUpdate(t *testing.T) {
 	if view.Code != http.StatusOK {
 		t.Fatalf("public Markdown view status=%d body=%s", view.Code, view.Body.String())
 	}
+	assertPublicArtifactHeaders(t, view)
+	head := performRequest(handler, http.MethodHead, publicPath, "", "", nil)
+	if head.Code != http.StatusOK || head.Body.Len() != 0 {
+		t.Errorf("HEAD public Markdown preview status=%d body length=%d, want 200 with no body", head.Code, head.Body.Len())
+	}
+	assertPublicArtifactHeaders(t, head)
 	if got := view.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 		t.Errorf("Markdown public Content-Type=%q, want text/html", got)
 	}
