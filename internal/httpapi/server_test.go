@@ -927,7 +927,7 @@ func TestPublicCatalogPagesListProjectsArtifactsAndEmptyStates(t *testing.T) {
 		"aria-label=\"Breadcrumb\"",
 		"class=\"artifact-card\"",
 		".site-header { position: sticky; top: 0; z-index: 10;",
-		"@media (max-width: 620px)",
+		"@media (max-width: 640px)",
 	} {
 		if !strings.Contains(alpha.Body.String(), want) {
 			t.Errorf("alpha page does not contain %q: %s", want, alpha.Body.String())
