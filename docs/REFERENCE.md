@@ -278,6 +278,11 @@ The endpoint provides these tools over the same repository operations as REST:
 | `delete_artifact` | Delete one artifact |
 | `delete_project` | Delete a project after exact slug confirmation |
 
+Projects are created implicitly: publishing the first artifact for a project
+slug creates the project. Publish another artifact with the same project slug
+and a different artifact slug to add a page. There is no separate
+`create_project` tool.
+
 The `url` returned by publishing and listing tools is the same path-relative
 value described in [Sharing published artifact URLs](#sharing-published-artifact-urls).
 Combine it with the MCP client's configured AIDrop base address before sending

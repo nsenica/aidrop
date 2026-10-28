@@ -106,7 +106,7 @@ func registerMCPTools(server *mcp.Server, repository *storage.Repository) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "publish_artifact",
 		Title:       "Publish artifact",
-		Description: "Create an HTML or Markdown artifact with a stable public URL. Text bodies up to 1 MiB can be sent inline. Upload ZIP or larger bodies through the authenticated REST route returned by this tool.",
+		Description: "Create an HTML or Markdown artifact with a stable public URL. Publishing the first artifact for a project slug creates that project; use the same project slug and a different artifact slug to add pages. There is no separate create_project tool. Text bodies up to 1 MiB can be sent inline. Upload ZIP or larger bodies through the authenticated REST route returned by this tool.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, input publishArtifactInput) (*mcp.CallToolResult, any, error) {
 		return publishMCPArtifact(repository, input, false)
 	})
