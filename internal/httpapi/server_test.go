@@ -354,6 +354,73 @@ func assertPublicArtifactCORSHeaders(t *testing.T, response *httptest.ResponseRe
 	}
 }
 
+func assertPublicHTMLContent(t *testing.T, response *httptest.ResponseRecorder, original []byte) {
+	t.Helper()
+	actual := bytes.Replace(response.Body.Bytes(), []byte(publicArtifactNavigationBridge), nil, 1)
+	if !bytes.Equal(actual, original) {
+		t.Errorf("public HTML content differs after removing navigation bridge: got %q, want %q", actual, original)
+	}
+	if !bytes.Contains(response.Body.Bytes(), []byte("data-aidrop-artifact-navigation")) {
+		t.Error("public HTML response is missing the artifact navigation bridge")
+	}
+}
+
+func TestAIDropArtifactLinksFromPreviewNavigateTopLevel(t *testing.T) {
+	const token = "navigation-secret"
+	handler, _ := newTestService(t, token)
+	controllerHTML := []byte(`<!doctype html><html><body>
+<a href="/p/demo/workflow-prompts/">Prompts</a>
+<a href="#summary">Summary</a>
+<a href="nested/">Nested page</a>
+<a href="https://example.test/">External page</a>
+</body></html>`)
+	promptsMarkdown := []byte("# Workflow prompts")
+
+	controllerCreated := performRequest(handler, http.MethodPost, "/api/v1/projects/demo/artifacts/workflow-controller", token, "text/html", controllerHTML)
+	if controllerCreated.Code != http.StatusCreated {
+		t.Fatalf("create controller status=%d body=%s", controllerCreated.Code, controllerCreated.Body.String())
+	}
+	promptsCreated := performRequest(handler, http.MethodPost, "/api/v1/projects/demo/artifacts/workflow-prompts", token, "text/markdown", promptsMarkdown)
+	if promptsCreated.Code != http.StatusCreated {
+		t.Fatalf("create prompts status=%d body=%s", promptsCreated.Code, promptsCreated.Body.String())
+	}
+
+	viewer := performRequest(handler, http.MethodGet, "/p/demo/workflow-controller/", "", "", nil)
+	if viewer.Code != http.StatusOK || !strings.Contains(viewer.Body.String(), `sandbox="allow-scripts allow-top-navigation-by-user-activation"`) {
+		t.Fatalf("controller viewer status=%d body=%s; want sandboxed content with user-activated top navigation", viewer.Code, viewer.Body.String())
+	}
+	if got := viewer.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
+		t.Errorf("controller viewer CSP=%q, want frame-ancestors protection", got)
+	}
+
+	controllerContent := performRequest(handler, http.MethodGet, "/_aidrop/content/demo/workflow-controller/", "", "", nil)
+	if controllerContent.Code != http.StatusOK {
+		t.Fatalf("controller content status=%d body=%s", controllerContent.Code, controllerContent.Body.String())
+	}
+	assertPublicHTMLContent(t, controllerContent, controllerHTML)
+	if got := controllerContent.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts allow-top-navigation-by-user-activation" || strings.Contains(got, "allow-same-origin") {
+		t.Errorf("controller content CSP=%q, want user-activated top navigation while retaining sandbox isolation", got)
+	}
+	for _, want := range []string{
+		`event.isTrusted`,
+		`destination.origin !== current.origin`,
+		`!destination.pathname.startsWith("/p/")`,
+		`window.top.location.href = destination.href`,
+	} {
+		if !strings.Contains(controllerContent.Body.String(), want) {
+			t.Errorf("controller content navigation bridge missing %q", want)
+		}
+	}
+
+	prompts := performRequest(handler, http.MethodGet, "/p/demo/workflow-prompts/", "", "", nil)
+	if prompts.Code != http.StatusOK {
+		t.Fatalf("prompts page status=%d body=%s; want %d", prompts.Code, prompts.Body.String(), http.StatusOK)
+	}
+	if got := prompts.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
+		t.Errorf("prompts CSP=%q, want frame-ancestors protection", got)
+	}
+}
+
 func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 	const token = "integration-secret"
 	handler, _ := newTestService(t, token)
@@ -398,7 +465,7 @@ func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 	if strings.Contains(viewed.Body.String(), token) {
 		t.Error("viewer page leaked the management bearer token")
 	}
-	for _, want := range []string{`href="/">Home</a>`, `href="/p/demo/">demo</a>`, `src="/_aidrop/content/demo/homepage/"`, `sandbox="allow-scripts"`} {
+	for _, want := range []string{`href="/">Home</a>`, `href="/p/demo/">demo</a>`, `src="/_aidrop/content/demo/homepage/"`, `sandbox="allow-scripts allow-top-navigation-by-user-activation"`} {
 		if !strings.Contains(viewed.Body.String(), want) {
 			t.Errorf("public viewer does not contain %q: %s", want, viewed.Body.String())
 		}
@@ -407,22 +474,24 @@ func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 		t.Errorf("directory-style public URL was not preserved: %q", createdMetadata.PublicURL)
 	}
 	rawViewed := performRequest(handler, http.MethodGet, publicPath+"?_aidrop_content=1", "", "", nil)
-	if rawViewed.Code != http.StatusOK || !bytes.Equal(rawViewed.Body.Bytes(), original) {
-		t.Fatalf("framed HTML view status=%d body=%q; want original HTML", rawViewed.Code, rawViewed.Body.Bytes())
+	if rawViewed.Code != http.StatusOK {
+		t.Fatalf("framed HTML view status=%d body=%q; want %d", rawViewed.Code, rawViewed.Body.Bytes(), http.StatusOK)
 	}
+	assertPublicHTMLContent(t, rawViewed, original)
 	assertPublicArtifactCORSHeaders(t, rawViewed)
-	if got := rawViewed.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" || strings.Contains(got, "allow-same-origin") {
-		t.Errorf("framed HTML CSP = %q, want sandbox allow-scripts without same-origin", got)
+	if got := rawViewed.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts allow-top-navigation-by-user-activation" || strings.Contains(got, "allow-same-origin") {
+		t.Errorf("framed HTML CSP = %q, want user-activated top navigation without same-origin", got)
 	}
 	contentPath := "/_aidrop/content/demo/homepage/"
 	contentView := performRequest(handler, http.MethodGet, contentPath, "", "", nil)
-	if contentView.Code != http.StatusOK || !bytes.Equal(contentView.Body.Bytes(), original) {
-		t.Fatalf("internal HTML content path status=%d body=%q; want original HTML", contentView.Code, contentView.Body.Bytes())
+	if contentView.Code != http.StatusOK {
+		t.Fatalf("internal HTML content path status=%d body=%q; want %d", contentView.Code, contentView.Body.Bytes(), http.StatusOK)
 	}
+	assertPublicHTMLContent(t, contentView, original)
 	assertPublicArtifactHeaders(t, contentView)
 	assertPublicArtifactCORSHeaders(t, contentView)
-	if got := contentView.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" || strings.Contains(got, "allow-same-origin") {
-		t.Errorf("internal HTML content CSP = %q, want sandbox allow-scripts without same-origin", got)
+	if got := contentView.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts allow-top-navigation-by-user-activation" || strings.Contains(got, "allow-same-origin") {
+		t.Errorf("internal HTML content CSP = %q, want user-activated top navigation without same-origin", got)
 	}
 	if !bytes.Contains(rawViewed.Body.Bytes(), []byte(`href="styles/site.css"`)) {
 		t.Errorf("relative stylesheet reference was not preserved in framed HTML")
@@ -466,9 +535,10 @@ func TestHTMLPublishViewUpdateSourceMetadataDelete(t *testing.T) {
 		t.Fatalf("updated public viewer status=%d body=%q", viewed.Code, viewed.Body.Bytes())
 	}
 	rawViewed = performRequest(handler, http.MethodGet, publicPath+"?_aidrop_content=1", "", "", nil)
-	if rawViewed.Code != http.StatusOK || !bytes.Equal(rawViewed.Body.Bytes(), updatedSource) {
+	if rawViewed.Code != http.StatusOK {
 		t.Fatalf("updated framed HTML status=%d body=%q", rawViewed.Code, rawViewed.Body.Bytes())
 	}
+	assertPublicHTMLContent(t, rawViewed, updatedSource)
 
 	source := performRequest(handler, http.MethodGet, path+"/source", token, "", nil)
 	if source.Code != http.StatusOK || !bytes.Equal(source.Body.Bytes(), updatedSource) {
@@ -597,20 +667,22 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 		t.Errorf("viewer CSP = %q, want a restrictive policy allowing the same-origin frame", got)
 	}
 	framedRoot := performRequest(handler, http.MethodGet, publicPath+"?_aidrop_content=1", "", "", nil)
-	if framedRoot.Code != http.StatusOK || !bytes.Equal(framedRoot.Body.Bytes(), indexHTML) {
-		t.Fatalf("framed ZIP root status=%d body=%q; want original entry point", framedRoot.Code, framedRoot.Body.Bytes())
+	if framedRoot.Code != http.StatusOK {
+		t.Fatalf("framed ZIP root status=%d body=%q; want %d", framedRoot.Code, framedRoot.Body.Bytes(), http.StatusOK)
 	}
-	if got := framedRoot.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" || strings.Contains(got, "allow-same-origin") {
-		t.Errorf("framed ZIP root CSP = %q, want sandbox allow-scripts without same-origin", got)
+	assertPublicHTMLContent(t, framedRoot, indexHTML)
+	if got := framedRoot.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts allow-top-navigation-by-user-activation" || strings.Contains(got, "allow-same-origin") {
+		t.Errorf("framed ZIP root CSP = %q, want user-activated top navigation without same-origin", got)
 	}
 	contentPath := "/_aidrop/content/demo/site/"
 	contentRoot := performRequest(handler, http.MethodGet, contentPath, "", "", nil)
-	if contentRoot.Code != http.StatusOK || !bytes.Equal(contentRoot.Body.Bytes(), indexHTML) {
-		t.Fatalf("internal ZIP content root status=%d body=%q; want entry point", contentRoot.Code, contentRoot.Body.Bytes())
+	if contentRoot.Code != http.StatusOK {
+		t.Fatalf("internal ZIP content root status=%d body=%q; want %d", contentRoot.Code, contentRoot.Body.Bytes(), http.StatusOK)
 	}
+	assertPublicHTMLContent(t, contentRoot, indexHTML)
 	assertPublicArtifactHeaders(t, contentRoot)
-	if got := contentRoot.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" || strings.Contains(got, "allow-same-origin") {
-		t.Errorf("internal ZIP root CSP = %q, want sandbox allow-scripts without same-origin", got)
+	if got := contentRoot.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts allow-top-navigation-by-user-activation" || strings.Contains(got, "allow-same-origin") {
+		t.Errorf("internal ZIP root CSP = %q, want user-activated top navigation without same-origin", got)
 	}
 	contentHead := performRequest(handler, http.MethodHead, contentPath, "", "", nil)
 	if contentHead.Code != http.StatusOK || contentHead.Body.Len() != 0 {
@@ -619,9 +691,10 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 	assertPublicArtifactHeaders(t, contentHead)
 	assertPublicArtifactCORSHeaders(t, contentHead)
 	contentNested := performRequest(handler, http.MethodGet, contentPath+"nested/", "", "", nil)
-	if contentNested.Code != http.StatusOK || string(contentNested.Body.Bytes()) != "<h1>Nested page</h1>" {
+	if contentNested.Code != http.StatusOK {
 		t.Errorf("internal nested ZIP page status=%d body=%q", contentNested.Code, contentNested.Body.Bytes())
 	}
+	assertPublicHTMLContent(t, contentNested, []byte("<h1>Nested page</h1>"))
 	assertPublicArtifactHeaders(t, contentNested)
 	traversal := performRequest(handler, http.MethodGet, contentPath+"nested/../../../../etc/passwd", "", "", nil)
 	if traversal.Code == http.StatusOK || strings.Contains(traversal.Body.String(), "root:x:0:0:") {
@@ -669,11 +742,12 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 	}
 	assertPublicArtifactCORSHeaders(t, contentScript)
 	nested := performRequest(handler, http.MethodGet, publicPath+"nested/", "", "", nil)
-	if nested.Code != http.StatusOK || string(nested.Body.Bytes()) != "<h1>Nested page</h1>" {
+	if nested.Code != http.StatusOK {
 		t.Errorf("nested directory status=%d body=%q", nested.Code, nested.Body.Bytes())
 	}
-	if got := nested.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts" {
-		t.Errorf("nested HTML CSP=%q, want sandbox allow-scripts", got)
+	assertPublicHTMLContent(t, nested, []byte("<h1>Nested page</h1>"))
+	if got := nested.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts allow-top-navigation-by-user-activation" {
+		t.Errorf("nested HTML CSP=%q, want user-activated top navigation", got)
 	}
 	assertPublicArtifactHeaders(t, nested)
 	assertPublicArtifactCORSHeaders(t, nested)
@@ -721,9 +795,10 @@ func TestInvalidZIPDoesNotPublishOrReplaceArtifact(t *testing.T) {
 		t.Fatalf("prior site viewer after rejected update status=%d body=%q", root.Code, root.Body.Bytes())
 	}
 	framedRoot := performRequest(handler, http.MethodGet, "/p/demo/site/?_aidrop_content=1", "", "", nil)
-	if framedRoot.Code != http.StatusOK || string(framedRoot.Body.Bytes()) != "old complete site" {
+	if framedRoot.Code != http.StatusOK {
 		t.Fatalf("prior site after rejected update status=%d body=%q", framedRoot.Code, framedRoot.Body.Bytes())
 	}
+	assertPublicHTMLContent(t, framedRoot, []byte("old complete site"))
 	source := performRequest(handler, http.MethodGet, path+"/source", token, "", nil)
 	if source.Code != http.StatusOK || !bytes.Equal(source.Body.Bytes(), original) {
 		t.Fatalf("source after rejected update status=%d; prior ZIP was not retained", source.Code)
@@ -772,9 +847,10 @@ func TestSensitiveZIPEntriesDoNotPublishOrReplaceArtifact(t *testing.T) {
 		assertAPIError(t, response, http.StatusBadRequest, "invalid_archive")
 	}
 	root := performRequest(handler, http.MethodGet, "/p/demo/site/?_aidrop_content=1", "", "", nil)
-	if root.Code != http.StatusOK || string(root.Body.Bytes()) != "old complete site" {
+	if root.Code != http.StatusOK {
 		t.Fatalf("published site after rejected replacements status=%d body=%q", root.Code, root.Body.Bytes())
 	}
+	assertPublicHTMLContent(t, root, []byte("old complete site"))
 	source := performRequest(handler, http.MethodGet, path+"/source", token, "", nil)
 	if source.Code != http.StatusOK || !bytes.Equal(source.Body.Bytes(), original) {
 		t.Fatalf("source after rejected replacements status=%d; prior ZIP was not retained", source.Code)

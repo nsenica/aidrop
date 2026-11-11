@@ -198,11 +198,12 @@ or other secrets embedded in HTML, Markdown, or arbitrary files, and custom
 private-key filenames may not match these patterns.
 
 HTML files served from a ZIP use `Content-Security-Policy: sandbox
-allow-scripts` without `allow-same-origin`; assets receive a matching MIME type
-and `X-Content-Type-Options: nosniff`. Relative links remain within the
-published site, including links from nested pages back to its root. A leading
-`/` still refers to the service origin root; use relative URLs for ZIP-internal
-links.
+allow-scripts allow-top-navigation-by-user-activation` without
+`allow-same-origin`; assets receive a matching MIME type and
+`X-Content-Type-Options: nosniff`. Relative links remain within the published
+site, including links from nested pages back to its root. Clicked links to
+same-origin `/p/` artifacts navigate the top-level page. A leading `/` still
+refers to the service origin root; use relative URLs for ZIP-internal links.
 
 ## Project discovery and deletion
 
@@ -463,10 +464,13 @@ to 1 MiB; larger and binary transfers use the REST routes. These bounds limit
 individual uploads and inline responses, not total volume size.
 
 Uploaded HTML and ZIP HTML run with `Content-Security-Policy: sandbox
-allow-scripts` and without `allow-same-origin`. Markdown is rendered with raw
-HTML sanitized and dangerous links disabled. This keeps published content
-isolated from the AI Drop management origin; pages that require same-origin
-browser APIs will not work as ordinary unrestricted sites.
+allow-scripts allow-top-navigation-by-user-activation` and without
+`allow-same-origin`. AIDrop artifact links clicked in the preview navigate the
+top-level page; fragment and ordinary relative links stay within the preview.
+Markdown is rendered with raw HTML sanitized and dangerous links disabled.
+This keeps published content isolated from the AI Drop management origin;
+pages that require same-origin browser APIs will not work as ordinary
+unrestricted sites.
 
 An artifact slug names one current payload. PUT replaces that payload while
 keeping its public URL and creation time; the service does not retain prior

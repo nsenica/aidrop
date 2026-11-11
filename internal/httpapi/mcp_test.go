@@ -335,8 +335,10 @@ func TestCrossInterfaceReleaseWorkflowAcrossFormats(t *testing.T) {
 	if viewed := performRequest(handler, http.MethodGet, htmlCreated.PublicURL, "", "", nil); viewed.Code != http.StatusOK || !strings.Contains(viewed.Body.String(), `href="/p/release-check/">release-check</a>`) {
 		t.Errorf("updated HTML viewer status=%d body=%q", viewed.Code, viewed.Body.String())
 	}
-	if viewed := performRequest(handler, http.MethodGet, htmlCreated.PublicURL+"?_aidrop_content=1", "", "", nil); viewed.Code != http.StatusOK || viewed.Body.String() != htmlUpdatedSource {
+	if viewed := performRequest(handler, http.MethodGet, htmlCreated.PublicURL+"?_aidrop_content=1", "", "", nil); viewed.Code != http.StatusOK {
 		t.Errorf("updated HTML frame content status=%d body=%q", viewed.Code, viewed.Body.String())
+	} else {
+		assertPublicHTMLContent(t, viewed, []byte(htmlUpdatedSource))
 	}
 	if source := performRequest(handler, http.MethodGet, htmlPath+"/source", token, "", nil); source.Code != http.StatusOK || source.Body.String() != htmlUpdatedSource {
 		t.Errorf("updated HTML source status=%d body=%q", source.Code, source.Body.String())

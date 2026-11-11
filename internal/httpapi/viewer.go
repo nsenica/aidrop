@@ -58,7 +58,7 @@ var artifactViewerTemplate = template.Must(template.New("artifact-viewer").Parse
   <span class="preview-label">Published preview</span>
   </header>
   <main>
-    <iframe src="{{.ContentURL}}" title="{{.Artifact}} published content" sandbox="allow-scripts"></iframe>
+    <iframe src="{{.ContentURL}}" title="{{.Artifact}} published content" sandbox="allow-scripts allow-top-navigation-by-user-activation"></iframe>
   </main>
 </body>
 </html>

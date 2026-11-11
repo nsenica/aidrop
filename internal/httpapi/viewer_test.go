@@ -16,7 +16,7 @@ func TestArtifactViewerEscapesLabelsAndFramesPublishedContent(t *testing.T) {
 		"href=\"/p/demo&amp;team/\">demo&amp;team</a>",
 		"report&lt;draft&gt;",
 		"src=\"/_aidrop/content/demo/report/\"",
-		"sandbox=\"allow-scripts\"",
+		"sandbox=\"allow-scripts allow-top-navigation-by-user-activation\"",
 	} {
 		if !strings.Contains(contents, want) {
 			t.Errorf("viewer does not contain %q: %s", want, contents)

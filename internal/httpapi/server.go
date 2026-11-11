@@ -574,21 +574,60 @@ func serveSiteFile(w http.ResponseWriter, sitePath string, contents []byte) {
 func servePublicSiteFile(w http.ResponseWriter, sitePath string, contents []byte, head bool) {
 	setPublicArtifactHeaders(w)
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	serveSiteFileHeadAware(w, sitePath, contents, head)
+	allowTopNavigation := false
+	if isHTMLPath(sitePath) {
+		contents = injectPublicArtifactNavigation(contents)
+		allowTopNavigation = true
+	}
+	serveSiteFileHeadAwareWithNavigation(w, sitePath, contents, head, allowTopNavigation)
 }
 
 func serveSiteFileHeadAware(w http.ResponseWriter, sitePath string, contents []byte, head bool) {
+	serveSiteFileHeadAwareWithNavigation(w, sitePath, contents, head, false)
+}
+
+func serveSiteFileHeadAwareWithNavigation(w http.ResponseWriter, sitePath string, contents []byte, head, allowTopNavigation bool) {
 	contentType := contentTypeForSitePath(sitePath)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if isHTMLPath(sitePath) {
-		w.Header().Set("Content-Security-Policy", "sandbox allow-scripts")
+		policy := "sandbox allow-scripts"
+		if allowTopNavigation {
+			policy += " allow-top-navigation-by-user-activation"
+		}
+		w.Header().Set("Content-Security-Policy", policy)
 	}
 	w.Header().Set("Content-Length", strconv.Itoa(len(contents)))
 	w.WriteHeader(http.StatusOK)
 	if !head {
 		_, _ = w.Write(contents)
 	}
+}
+
+// Keep links to frame-protected public artifact pages usable from sandboxed previews.
+const publicArtifactNavigationBridge = `<script data-aidrop-artifact-navigation>
+document.addEventListener("click", function (event) {
+  if (!event.isTrusted || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const target = event.target instanceof Element ? event.target.closest("a[href]") : null;
+  if (!target || target.hasAttribute("download")) return;
+  const browsingTarget = target.getAttribute("target");
+  if (browsingTarget && browsingTarget.toLowerCase() !== "_self") return;
+  try {
+    const current = new URL(document.location.href);
+    const destination = new URL(target.href, current);
+    if (destination.origin !== current.origin || !destination.pathname.startsWith("/p/")) return;
+    event.preventDefault();
+    window.top.location.href = destination.href;
+  } catch (_) {}
+});
+</script>`
+
+func injectPublicArtifactNavigation(contents []byte) []byte {
+	bridge := []byte(publicArtifactNavigationBridge)
+	result := make([]byte, 0, len(contents)+len(bridge))
+	result = append(result, contents...)
+	result = append(result, bridge...)
+	return result
 }
 
 func setPublicArtifactHeaders(w http.ResponseWriter) {
