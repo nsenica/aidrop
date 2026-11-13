@@ -253,6 +253,7 @@ func (s *server) publicProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeCatalogPage(w http.ResponseWriter, status int, page []byte) {
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")

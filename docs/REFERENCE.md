@@ -241,6 +241,9 @@ authentication:
 - `/p/{project}/` lists that project's artifacts with their format, modification
   time, and direct view links such as `/p/{project}/{artifact}/`.
 
+Public catalog pages send `Cache-Control: no-store` so a cached index does not
+hide newly published, updated, or deleted projects and artifacts.
+
 When no projects exist, `/` shows a clear empty state. A project with no
 artifacts shows an empty state on its project page; a missing project returns a
 clear `404 not_found` page. The index, project listings, and Markdown views use

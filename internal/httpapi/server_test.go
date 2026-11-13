@@ -1242,6 +1242,7 @@ func TestPublicCatalogPagesListProjectsArtifactsAndEmptyStates(t *testing.T) {
 	if emptyRoot.Code != http.StatusOK || !strings.Contains(emptyRoot.Body.String(), "No projects yet") {
 		t.Fatalf("empty root page status=%d body=%s", emptyRoot.Code, emptyRoot.Body.String())
 	}
+	assertCatalogNoStore(t, "empty home", emptyRoot)
 
 	for _, upload := range []struct {
 		project  string
@@ -1267,6 +1268,7 @@ func TestPublicCatalogPagesListProjectsArtifactsAndEmptyStates(t *testing.T) {
 	if root.Code != http.StatusOK {
 		t.Fatalf("root page status=%d body=%s", root.Code, root.Body.String())
 	}
+	assertCatalogNoStore(t, "home", root)
 	for _, project := range []string{"alpha", "beta", "empty"} {
 		if !strings.Contains(root.Body.String(), `href="/p/`+project+`/"`) || !strings.Contains(root.Body.String(), `class="project-card__title">`+project+"</span>") {
 			t.Errorf("root page is missing project link for %q: %s", project, root.Body.String())
@@ -1280,6 +1282,7 @@ func TestPublicCatalogPagesListProjectsArtifactsAndEmptyStates(t *testing.T) {
 	if alpha.Code != http.StatusOK {
 		t.Fatalf("alpha page status=%d body=%s", alpha.Code, alpha.Body.String())
 	}
+	assertCatalogNoStore(t, "populated project", alpha)
 	for _, want := range []string{
 		`href="/p/alpha/home/">home</a>`,
 		`href="/p/alpha/report/">report</a>`,
@@ -1307,17 +1310,27 @@ func TestPublicCatalogPagesListProjectsArtifactsAndEmptyStates(t *testing.T) {
 	if beta.Code != http.StatusOK || !strings.Contains(beta.Body.String(), "application/zip") || !strings.Contains(beta.Body.String(), `href="/p/beta/site/">site</a>`) {
 		t.Errorf("beta page does not show ZIP artifact and direct link: status=%d body=%s", beta.Code, beta.Body.String())
 	}
+	assertCatalogNoStore(t, "ZIP project", beta)
 	empty := performRequest(handler, http.MethodGet, "/p/empty/", "", "", nil)
 	if empty.Code != http.StatusOK || !strings.Contains(empty.Body.String(), "No artifacts yet") {
 		t.Errorf("empty project page status=%d body=%s", empty.Code, empty.Body.String())
 	}
+	assertCatalogNoStore(t, "empty project", empty)
 	missing := performRequest(handler, http.MethodGet, "/p/missing/", "", "", nil)
 	if missing.Code != http.StatusNotFound || !strings.Contains(missing.Body.String(), "This project was not found") {
 		t.Errorf("missing project page status=%d body=%s", missing.Code, missing.Body.String())
 	}
+	assertCatalogNoStore(t, "missing project", missing)
 }
 
-func TestNoStoreIsLimitedToPublicArtifactResponses(t *testing.T) {
+func assertCatalogNoStore(t *testing.T, name string, response *httptest.ResponseRecorder) {
+	t.Helper()
+	if got := response.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("%s catalog Cache-Control=%q, want no-store", name, got)
+	}
+}
+
+func TestNoStoreCoversPublicContentAndCatalogResponses(t *testing.T) {
 	const token = "cache-policy-secret"
 	handler, _ := newTestService(t, token)
 	created := performRequest(handler, http.MethodPost, "/api/v1/projects/demo/artifacts/homepage", token, "text/html", []byte("<h1>Home</h1>"))
@@ -1330,21 +1343,26 @@ func TestNoStoreIsLimitedToPublicArtifactResponses(t *testing.T) {
 		t.Errorf("public artifact response status=%d Cache-Control=%q, want 200 and no-store", public.Code, public.Header().Get("Cache-Control"))
 	}
 	for _, request := range []struct {
-		name  string
-		path  string
-		token string
+		name    string
+		path    string
+		token   string
+		noStore bool
 	}{
 		{name: "management API", path: "/api/v1/projects/demo/artifacts/homepage", token: token},
-		{name: "home catalog", path: "/"},
-		{name: "project catalog", path: "/p/demo/"},
+		{name: "home catalog", path: "/", noStore: true},
+		{name: "project catalog", path: "/p/demo/", noStore: true},
 	} {
 		t.Run(request.name, func(t *testing.T) {
 			response := performRequest(handler, http.MethodGet, request.path, request.token, "", nil)
 			if response.Code != http.StatusOK {
 				t.Fatalf("response status=%d body=%s, want %d", response.Code, response.Body.String(), http.StatusOK)
 			}
-			if got := response.Header().Get("Cache-Control"); got == "no-store" {
-				t.Errorf("unrelated response Cache-Control=%q, must not receive public artifact policy", got)
+			want := ""
+			if request.noStore {
+				want = "no-store"
+			}
+			if got := response.Header().Get("Cache-Control"); got != want {
+				t.Errorf("Cache-Control=%q, want %q", got, want)
 			}
 		})
 	}
