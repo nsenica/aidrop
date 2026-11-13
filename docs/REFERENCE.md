@@ -43,7 +43,9 @@ Open the returned URL at `/p/{project}/{artifact}/` without authentication.
 The preview includes navigation back to the project and home pages, while the
 uploaded document runs inside a sandboxed frame. The frame response uses
 `Content-Security-Policy: sandbox allow-scripts` without `allow-same-origin`;
-the authenticated source endpoint continues to return the exact uploaded bytes.
+the authenticated source endpoint continues to return the exact uploaded bytes
+as an `application/octet-stream` attachment. Source and extracted-file
+endpoints accept GET and HEAD; HEAD returns the same headers without a body.
 Public artifact previews and files served from ZIP sites send
 `Cache-Control: no-store`, `X-Robots-Tag: noindex, nofollow`, and
 `Referrer-Policy: no-referrer` on successful GET and HEAD responses. The cache
@@ -204,6 +206,13 @@ allow-scripts allow-top-navigation-by-user-activation` without
 site, including links from nested pages back to its root. Clicked links to
 same-origin `/p/` artifacts navigate the top-level page. A leading `/` still
 refers to the service origin root; use relative URLs for ZIP-internal links.
+SVG, XHTML, and XML files receive a script-disabled CSP sandbox when served as
+documents, including on public preview, embedded-content, and authenticated
+extracted-file routes. Files without a recognized MIME type use
+`application/octet-stream` and `Content-Disposition: attachment`, so direct
+navigation downloads them instead of treating them as documents. Original ZIP
+and source bytes are preserved. Revision-serving handlers should use the same
+file-serving policy so the active-content boundary stays consistent.
 
 ## Project discovery and deletion
 

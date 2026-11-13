@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -766,6 +767,140 @@ func TestZIPPublishServesAssetsAndPreservesOriginalSource(t *testing.T) {
 	}
 	if got := performRequest(handler, http.MethodGet, path+"/files/invalid:name", token, "", nil); got.Code != http.StatusBadRequest {
 		t.Errorf("invalid file path status=%d, want %d", got.Code, http.StatusBadRequest)
+	}
+}
+
+func TestSiteFileServingPolicyCoversPublicEmbeddedAndAuthenticatedRoutes(t *testing.T) {
+	const token = "content-policy-secret"
+	handler, _ := newTestService(t, token)
+	archive := makeTestZIP(t, map[string][]byte{
+		"index.html":                    []byte(`<script type="module" src="js/app.js"></script><a href="nested/">nested</a>`),
+		"js/app.js":                     []byte(`console.log("module loaded")`),
+		"images/active.svg":             []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>parent.document.body.innerHTML = "changed"</script></svg>`),
+		"documents/page.xhtml":          []byte(`<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><script>parent.document.body.innerHTML = "changed"</script></body></html>`),
+		"documents/page.xml":            []byte(`<?xml version="1.0"?><root><script>parent.document.body.innerHTML = "changed"</script></root>`),
+		"downloads/blob.aidrop-unknown": []byte("unknown bytes"),
+	})
+	created := performRequest(handler, http.MethodPost, "/api/v1/projects/demo/artifacts/site", token, "application/zip", archive)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("ZIP POST status=%d body=%s; want %d", created.Code, created.Body.String(), http.StatusCreated)
+	}
+
+	tests := []struct {
+		path        string
+		contentType string
+		policy      string
+		body        []byte
+		download    bool
+	}{
+		{path: "images/active.svg", contentType: "image/svg+xml", policy: "sandbox", body: []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>parent.document.body.innerHTML = "changed"</script></svg>`)},
+		{path: "documents/page.xhtml", contentType: "application/xhtml+xml", policy: "sandbox", body: []byte(`<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><script>parent.document.body.innerHTML = "changed"</script></body></html>`)},
+		{path: "documents/page.xml", contentType: "application/xml", policy: "sandbox", body: []byte(`<?xml version="1.0"?><root><script>parent.document.body.innerHTML = "changed"</script></root>`)},
+		{path: "downloads/blob.aidrop-unknown", contentType: "application/octet-stream", body: []byte("unknown bytes"), download: true},
+	}
+	routes := []struct {
+		name   string
+		prefix string
+		token  string
+	}{
+		{name: "public direct", prefix: "/p/demo/site/"},
+		{name: "embedded content", prefix: "/_aidrop/content/demo/site/"},
+		{name: "authenticated extracted file", prefix: "/api/v1/projects/demo/artifacts/site/files/", token: token},
+	}
+	for _, file := range tests {
+		for _, route := range routes {
+			for _, method := range []string{http.MethodGet, http.MethodHead} {
+				response := performRequest(handler, method, route.prefix+file.path, route.token, "", nil)
+				if response.Code != http.StatusOK {
+					t.Errorf("%s %s %s status=%d body=%q; want 200", route.name, method, file.path, response.Code, response.Body.Bytes())
+					continue
+				}
+				if got := response.Header().Get("Content-Type"); !strings.HasPrefix(got, file.contentType) {
+					t.Errorf("%s %s %s Content-Type=%q; want prefix %q", route.name, method, file.path, got, file.contentType)
+				}
+				if got := response.Header().Get("Content-Security-Policy"); got != file.policy {
+					t.Errorf("%s %s %s CSP=%q; want %q", route.name, method, file.path, got, file.policy)
+				}
+				if got := response.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+					t.Errorf("%s %s %s X-Content-Type-Options=%q; want nosniff", route.name, method, file.path, got)
+				}
+				if file.download {
+					if got := response.Header().Get("Content-Disposition"); got != "attachment" {
+						t.Errorf("%s %s %s Content-Disposition=%q; want attachment", route.name, method, file.path, got)
+					}
+				} else if got := response.Header().Get("Content-Disposition"); got != "" {
+					t.Errorf("%s %s %s Content-Disposition=%q; want unset", route.name, method, file.path, got)
+				}
+				if method == http.MethodGet && !bytes.Equal(response.Body.Bytes(), file.body) {
+					t.Errorf("%s GET %s body=%q; want original bytes %q", route.name, file.path, response.Body.Bytes(), file.body)
+				}
+				if method == http.MethodHead && response.Body.Len() != 0 {
+					t.Errorf("%s HEAD %s body length=%d; want empty", route.name, file.path, response.Body.Len())
+				}
+				if route.name != "authenticated extracted file" {
+					assertPublicArtifactHeaders(t, response)
+					assertPublicArtifactCORSHeaders(t, response)
+				}
+			}
+		}
+	}
+
+	sourcePath := "/api/v1/projects/demo/artifacts/site/source"
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		source := performRequest(handler, method, sourcePath, token, "", nil)
+		if source.Code != http.StatusOK {
+			t.Fatalf("%s source status=%d body=%q; want 200", method, source.Code, source.Body.Bytes())
+		}
+		if got := source.Header().Get("Content-Disposition"); got != "attachment" {
+			t.Errorf("%s source Content-Disposition=%q; want attachment", method, got)
+		}
+		if got := source.Header().Get("Content-Security-Policy"); got != "sandbox" {
+			t.Errorf("%s source CSP=%q; want sandbox", method, got)
+		}
+		if got := source.Header().Get("Content-Length"); got != strconv.Itoa(len(archive)) {
+			t.Errorf("%s source Content-Length=%q; want %d", method, got, len(archive))
+		}
+		if method == http.MethodGet && !bytes.Equal(source.Body.Bytes(), archive) {
+			t.Error("source response did not preserve exact uploaded ZIP bytes")
+		}
+		if method == http.MethodHead && source.Body.Len() != 0 {
+			t.Errorf("HEAD source body length=%d; want empty", source.Body.Len())
+		}
+	}
+
+	module := performRequest(handler, http.MethodGet, "/p/demo/site/js/app.js", "", "", nil)
+	if module.Code != http.StatusOK || !bytes.Equal(module.Body.Bytes(), []byte(`console.log("module loaded")`)) {
+		t.Errorf("module response status=%d body=%q; want original JavaScript", module.Code, module.Body.Bytes())
+	}
+	assertPublicArtifactCORSHeaders(t, module)
+	root := performRequest(handler, http.MethodGet, "/p/demo/site/", "", "", nil)
+	if root.Code != http.StatusOK || !strings.Contains(root.Body.String(), `sandbox="allow-scripts allow-top-navigation-by-user-activation"`) {
+		t.Errorf("ZIP viewer status=%d body=%q; want the existing isolated HTML preview", root.Code, root.Body.Bytes())
+	}
+}
+
+func TestSandboxPolicyForContentType(t *testing.T) {
+	tests := []struct {
+		name               string
+		contentType        string
+		allowTopNavigation bool
+		want               string
+	}{
+		{name: "HTML scripts", contentType: "text/html; charset=utf-8", want: "sandbox allow-scripts"},
+		{name: "public HTML navigation", contentType: "text/html; charset=utf-8", allowTopNavigation: true, want: "sandbox allow-scripts allow-top-navigation-by-user-activation"},
+		{name: "SVG", contentType: "image/svg+xml", want: "sandbox"},
+		{name: "XHTML", contentType: "application/xhtml+xml", want: "sandbox"},
+		{name: "XML", contentType: "text/xml; charset=utf-8", want: "sandbox"},
+		{name: "structured XML", contentType: "application/atom+xml", want: "sandbox"},
+		{name: "JSON", contentType: "application/json", want: ""},
+		{name: "JavaScript asset", contentType: "text/javascript; charset=utf-8", want: ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := sandboxPolicyForContentType(test.contentType, test.allowTopNavigation); got != test.want {
+				t.Errorf("sandboxPolicyForContentType(%q, %t)=%q; want %q", test.contentType, test.allowTopNavigation, got, test.want)
+			}
+		})
 	}
 }
 

@@ -312,8 +312,8 @@ func (s *server) replaceArtifact(w http.ResponseWriter, r *http.Request, project
 }
 
 func (s *server) source(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w, "GET")
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		methodNotAllowed(w, "GET, HEAD")
 		return
 	}
 	metadata, source, err := s.repository.Get(r.PathValue("project"), r.PathValue("artifact"))
@@ -322,15 +322,20 @@ func (s *server) source(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", "attachment")
+	w.Header().Set("Content-Security-Policy", "sandbox")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Length", strconv.FormatInt(metadata.Size, 10))
 	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
 	_, _ = w.Write(source)
 }
 
 func (s *server) siteFile(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w, "GET")
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		methodNotAllowed(w, "GET, HEAD")
 		return
 	}
 	sitePath := r.PathValue("path")
@@ -339,7 +344,7 @@ func (s *server) siteFile(w http.ResponseWriter, r *http.Request) {
 		writeStorageError(w, err)
 		return
 	}
-	serveSiteFile(w, sitePath, contents)
+	serveSiteFile(w, sitePath, contents, r.Method == http.MethodHead)
 }
 
 func (s *server) publicArtifact(w http.ResponseWriter, r *http.Request) {
@@ -567,8 +572,8 @@ func writePayloadTooLarge(w http.ResponseWriter, label string) {
 	writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", label+" body exceeds "+limit)
 }
 
-func serveSiteFile(w http.ResponseWriter, sitePath string, contents []byte) {
-	serveSiteFileHeadAware(w, sitePath, contents, false)
+func serveSiteFile(w http.ResponseWriter, sitePath string, contents []byte, head bool) {
+	serveSiteFileHeadAware(w, sitePath, contents, head)
 }
 
 func servePublicSiteFile(w http.ResponseWriter, sitePath string, contents []byte, head bool) {
@@ -586,22 +591,45 @@ func serveSiteFileHeadAware(w http.ResponseWriter, sitePath string, contents []b
 	serveSiteFileHeadAwareWithNavigation(w, sitePath, contents, head, false)
 }
 
+// Keep MIME handling and document isolation shared by public, embedded, and
+// extracted files; revision routes should use this policy as well.
 func serveSiteFileHeadAwareWithNavigation(w http.ResponseWriter, sitePath string, contents []byte, head, allowTopNavigation bool) {
 	contentType := contentTypeForSitePath(sitePath)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if isHTMLPath(sitePath) {
-		policy := "sandbox allow-scripts"
-		if allowTopNavigation {
-			policy += " allow-top-navigation-by-user-activation"
-		}
+	if policy := sandboxPolicyForContentType(contentType, allowTopNavigation); policy != "" {
 		w.Header().Set("Content-Security-Policy", policy)
+	}
+	if contentType == "application/octet-stream" {
+		w.Header().Set("Content-Disposition", "attachment")
 	}
 	w.Header().Set("Content-Length", strconv.Itoa(len(contents)))
 	w.WriteHeader(http.StatusOK)
 	if !head {
 		_, _ = w.Write(contents)
 	}
+}
+
+func sandboxPolicyForContentType(contentType string, allowTopNavigation bool) string {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return ""
+	}
+	switch mediaType {
+	case "text/html":
+		policy := "sandbox allow-scripts"
+		if allowTopNavigation {
+			policy += " allow-top-navigation-by-user-activation"
+		}
+		return policy
+	case "image/svg+xml", "application/xhtml+xml", "text/xml", "application/xml":
+		return "sandbox"
+	default:
+		if strings.HasSuffix(mediaType, "+xml") {
+			return "sandbox"
+		}
+	}
+	return ""
 }
 
 // Keep links to frame-protected public artifact pages usable from sandboxed previews.
@@ -647,6 +675,10 @@ func contentTypeForSitePath(sitePath string) string {
 		return "text/javascript; charset=utf-8"
 	case ".svg":
 		return "image/svg+xml"
+	case ".xht", ".xhtml":
+		return "application/xhtml+xml"
+	case ".xml":
+		return "application/xml"
 	case ".json", ".map":
 		return "application/json; charset=utf-8"
 	case ".wasm":
@@ -667,8 +699,8 @@ func contentTypeForSitePath(sitePath string) string {
 }
 
 func isHTMLPath(sitePath string) bool {
-	extension := strings.ToLower(filepath.Ext(sitePath))
-	return extension == ".html" || extension == ".htm"
+	mediaType, _, err := mime.ParseMediaType(contentTypeForSitePath(sitePath))
+	return err == nil && mediaType == "text/html"
 }
 
 func writeStorageError(w http.ResponseWriter, err error) {
